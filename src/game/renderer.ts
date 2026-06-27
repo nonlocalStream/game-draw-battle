@@ -63,7 +63,9 @@ export function renderFrame(
   items: MapItem[],
   time: number,
   dt: number,
-  shake: number
+  shake: number,
+  localSpriteRow: number = 0,
+  remoteSpriteRow: number = 1,
 ): void {
   _screenShake = Math.max(0, _screenShake - dt * 0.003)
 
@@ -78,12 +80,12 @@ export function renderFrame(
 
   // Y-sort players
   const players = [
-    { p: localPlayer, isLocal: true },
-    ...(remotePlayer ? [{ p: remotePlayer, isLocal: false }] : [])
+    { p: localPlayer, spriteRow: localSpriteRow },
+    ...(remotePlayer ? [{ p: remotePlayer, spriteRow: remoteSpriteRow }] : [])
   ].sort((a, b) => a.p.y - b.p.y)
 
-  for (const { p, isLocal } of players) {
-    if (!p.dead) drawPlayer(ctx, p, isLocal, time)
+  for (const { p, spriteRow } of players) {
+    if (!p.dead) drawPlayer(ctx, p, spriteRow, time)
   }
 
   tickAndDrawSwings(ctx, dt)
@@ -108,7 +110,7 @@ function drawBackground(ctx: CanvasRenderingContext2D): void {
 
 const CHAR_W = 52, CHAR_H = 62
 
-function drawPlayer(ctx: CanvasRenderingContext2D, player: PlayerState, isLocal: boolean, time: number): void {
+function drawPlayer(ctx: CanvasRenderingContext2D, player: PlayerState, spriteRow: number, time: number): void {
   const assets = getAssets()
   const { x, y, element, hitFlash, isDefending, shieldTimer, attackLevel } = player
   const stats = ELEMENT_STATS[element]
@@ -123,7 +125,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, player: PlayerState, isLocal:
   ctx.fill()
 
   if (assets) {
-    const { col, row, flipX } = getCharFrame(player, time, isLocal)
+    const { col, row, flipX } = getCharFrame(player, time, spriteRow)
 
     if (hitFlash > 0) ctx.filter = 'brightness(8) saturate(0)'
 
@@ -156,7 +158,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, player: PlayerState, isLocal:
   // Name tag
   ctx.font = 'bold 10px Nunito, sans-serif'
   ctx.textAlign = 'center'
-  ctx.fillStyle = isLocal ? '#1a3d0a' : '#5c0f0f'
+  ctx.fillStyle = spriteRow === 0 ? '#1a3d0a' : '#5c0f0f'
   ctx.strokeStyle = 'rgba(255,255,255,0.7)'
   ctx.lineWidth = 3
   ctx.strokeText(player.name.slice(0, 10), x, y - CHAR_H / 2 - 16)

@@ -84,8 +84,9 @@ export function getAssets(): GameAssets | null { return _assets }
 interface FrameResult { col: number; row: number; flipX: boolean }
 
 // time = elapsed ms (use for frame cycling so it's fps-independent)
-export function getCharFrame(player: PlayerState, time: number, isLocal: boolean): FrameResult {
-  const row = isLocal ? 0 : 1
+// spriteRow: 0 = dog, 1 = cat, 2 = fox
+export function getCharFrame(player: PlayerState, time: number, spriteRow: number): FrameResult {
+  const row = spriteRow
   const attacking = player.attackCooldown > (player.isMelee ? 320 : 650)
 
   if (attacking) return { col: 7, row, flipX: false }

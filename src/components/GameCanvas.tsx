@@ -170,7 +170,16 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
     const canvas = canvasRef.current
     if (canvas) {
       const ctx = canvas.getContext('2d')!
-      renderFrame(ctx, state.localPlayer, state.remotePlayer, state.projectiles, state.items, gameTimeRef.current, dt, getScreenShake())
+      // Assign dog (row 0) to the player whose ID sorts first — consistent on both screens
+      const remoteId = state.remotePlayer?.id ?? 'zzz'
+      const localIsFirst = isSolo || state.localPlayer.id < remoteId
+      renderFrame(
+        ctx, state.localPlayer, state.remotePlayer,
+        state.projectiles, state.items,
+        gameTimeRef.current, dt, getScreenShake(),
+        localIsFirst ? 0 : 1,
+        localIsFirst ? 1 : 0,
+      )
     }
 
     if (state.winner) onGameOver(state.winner)
