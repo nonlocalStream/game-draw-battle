@@ -7,14 +7,31 @@ let _screenShake = 0
 export function getScreenShake(): number { return _screenShake }
 export function addScreenShake(v: number): void { _screenShake = Math.max(_screenShake, v) }
 
-// ── Weapon image cache (drawing dataUrls → Image) ──
-const weaponImgCache = new Map<string, HTMLImageElement | null>()
-function getWeaponImage(dataUrl: string): HTMLImageElement | null {
+// ── Weapon image cache (drawing dataUrls → processed canvas) ──
+// Removes near-white background so drawings composite cleanly in-game.
+const weaponImgCache = new Map<string, HTMLCanvasElement | null>()
+
+function removeWhiteBg(img: HTMLImageElement): HTMLCanvasElement {
+  const c = document.createElement('canvas')
+  c.width = img.naturalWidth; c.height = img.naturalHeight
+  const ctx = c.getContext('2d')!
+  ctx.drawImage(img, 0, 0)
+  const data = ctx.getImageData(0, 0, c.width, c.height)
+  const d = data.data
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i+1], b = d[i+2]
+    if (r > 210 && g > 210 && b > 210) d[i+3] = 0
+  }
+  ctx.putImageData(data, 0, 0)
+  return c
+}
+
+function getWeaponImage(dataUrl: string): HTMLCanvasElement | null {
   if (!dataUrl) return null
   if (weaponImgCache.has(dataUrl)) return weaponImgCache.get(dataUrl)!
   weaponImgCache.set(dataUrl, null) // mark loading
   const img = new Image()
-  img.onload = () => weaponImgCache.set(dataUrl, img)
+  img.onload = () => weaponImgCache.set(dataUrl, removeWhiteBg(img))
   img.src = dataUrl
   return null
 }

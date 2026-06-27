@@ -15,12 +15,7 @@ export function DrawingCanvas({ onSubmit }: Props) {
   const [eraser, setEraser] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
-  useEffect(() => {
-    const canvas = canvasRef.current!
-    const ctx = canvas.getContext('2d')!
-    ctx.fillStyle = '#FFFAF5'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-  }, [])
+  // Canvas starts transparent — no background fill
 
   const getPos = (e: MouseEvent | TouchEvent): { x: number; y: number } => {
     const canvas = canvasRef.current!
@@ -44,24 +39,46 @@ export function DrawingCanvas({ onSubmit }: Props) {
     const pos = getPos(e)
     lastPos.current = pos
     const ctx = canvasRef.current!.getContext('2d')!
-    ctx.beginPath()
-    ctx.arc(pos.x, pos.y, (eraser ? brushSize * 2 : brushSize) / 2, 0, Math.PI * 2)
-    ctx.fillStyle = eraser ? '#FFFAF5' : color
-    ctx.fill()
+    if (eraser) {
+      ctx.globalCompositeOperation = 'destination-out'
+      ctx.beginPath()
+      ctx.arc(pos.x, pos.y, brushSize * 1.5, 0, Math.PI * 2)
+      ctx.fillStyle = 'rgba(0,0,0,1)'
+      ctx.fill()
+      ctx.globalCompositeOperation = 'source-over'
+    } else {
+      ctx.beginPath()
+      ctx.arc(pos.x, pos.y, brushSize / 2, 0, Math.PI * 2)
+      ctx.fillStyle = color
+      ctx.fill()
+    }
   }, [color, eraser, brushSize])
 
   const doDraw = useCallback((e: MouseEvent | TouchEvent) => {
     if (!drawing.current) return
     const ctx = canvasRef.current!.getContext('2d')!
     const pos = getPos(e)
-    ctx.beginPath()
-    ctx.moveTo(lastPos.current.x, lastPos.current.y)
-    ctx.lineTo(pos.x, pos.y)
-    ctx.strokeStyle = eraser ? '#FFFAF5' : color
-    ctx.lineWidth = eraser ? brushSize * 3 : brushSize
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.stroke()
+    if (eraser) {
+      ctx.globalCompositeOperation = 'destination-out'
+      ctx.beginPath()
+      ctx.moveTo(lastPos.current.x, lastPos.current.y)
+      ctx.lineTo(pos.x, pos.y)
+      ctx.strokeStyle = 'rgba(0,0,0,1)'
+      ctx.lineWidth = brushSize * 3
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.stroke()
+      ctx.globalCompositeOperation = 'source-over'
+    } else {
+      ctx.beginPath()
+      ctx.moveTo(lastPos.current.x, lastPos.current.y)
+      ctx.lineTo(pos.x, pos.y)
+      ctx.strokeStyle = color
+      ctx.lineWidth = brushSize
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.stroke()
+    }
     lastPos.current = pos
   }, [color, eraser, brushSize])
 
@@ -70,14 +87,14 @@ export function DrawingCanvas({ onSubmit }: Props) {
   const clearCanvas = () => {
     const canvas = canvasRef.current!
     const ctx = canvas.getContext('2d')!
-    ctx.fillStyle = '#FFFAF5'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
   }
 
   const handleSubmit = useCallback(() => {
     if (submitted) return
     setSubmitted(true)
-    const dataUrl = canvasRef.current!.toDataURL('image/jpeg', 0.85)
+    // PNG preserves transparency
+    const dataUrl = canvasRef.current!.toDataURL('image/png')
     onSubmit(dataUrl)
   }, [submitted, onSubmit])
 
@@ -107,13 +124,16 @@ export function DrawingCanvas({ onSubmit }: Props) {
       <p className="phase-subtitle">Draw anything — the AI will sense its element</p>
 
       <div className="drawing-layout">
-        <canvas
-          ref={canvasRef}
-          width={400}
-          height={400}
-          className="drawing-canvas"
-          style={{ cursor: eraser ? 'cell' : 'crosshair' }}
-        />
+        <div className="drawing-canvas-wrap">
+          <canvas
+            ref={canvasRef}
+            width={400}
+            height={400}
+            className="drawing-canvas"
+            style={{ cursor: eraser ? 'cell' : 'crosshair' }}
+          />
+          <div className="drawing-transparent-hint">✦ Transparent background — only your strokes show in-game</div>
+        </div>
 
         <div className="drawing-tools">
           <div className="tool-section">
