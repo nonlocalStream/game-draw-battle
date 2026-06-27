@@ -10,8 +10,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const apiKey = process.env.VITE_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' })
 
-  const { imageBase64, element, weaponName, isMelee, description } = req.body as {
+  const { imageBase64, mediaType, element, weaponName, isMelee, description } = req.body as {
     imageBase64: string
+    mediaType?: string
     element: string
     weaponName: string
     isMelee: boolean
@@ -39,7 +40,7 @@ Respond ONLY with valid JSON:
         content: [
           ...(imageBase64 ? [{
             type: 'image',
-            source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 }
+            source: { type: 'base64', media_type: mediaType ?? 'image/png', data: imageBase64 }
           }] : []),
           { type: 'text', text: prompt }
         ]

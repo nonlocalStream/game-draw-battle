@@ -30,7 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured on server' })
   }
 
-  const { imageBase64 } = req.body as { imageBase64: string }
+  const { imageBase64, mediaType } = req.body as { imageBase64: string; mediaType?: string }
   if (!imageBase64) {
     return res.status(400).json({ error: 'Missing imageBase64 in request body' })
   }
@@ -42,7 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       {
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 } },
+          { type: 'image', source: { type: 'base64', media_type: mediaType ?? 'image/png', data: imageBase64 } },
           { type: 'text', text: PROMPT_TEXT }
         ]
       }

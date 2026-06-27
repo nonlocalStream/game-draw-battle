@@ -75,7 +75,8 @@ export async function recognizeDrawing(drawingDataUrl: string): Promise<WeaponDa
   const apiKeyPresent = !!clientKey
   const apiKeyPrefix = clientKey ? `${clientKey.slice(0, 16)}...` : '(server-side)'
 
-  const base64 = drawingDataUrl.split(',')[1]
+  const [header, base64] = drawingDataUrl.split(',')
+  const mediaType = (header.match(/data:([^;]+);/) ?? [])[1] ?? 'image/png'
 
   const entry: DebugEntry = {
     timestamp: new Date().toISOString(),
@@ -92,7 +93,7 @@ export async function recognizeDrawing(drawingDataUrl: string): Promise<WeaponDa
     const res = await fetch('/api/recognize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageBase64: base64 })
+      body: JSON.stringify({ imageBase64: base64, mediaType })
     })
 
     const durationMs = Date.now() - t0
@@ -138,13 +139,15 @@ export async function recognizeDrawing(drawingDataUrl: string): Promise<WeaponDa
 }
 
 export async function generateUpgrade(weapon: WeaponData): Promise<WeaponUpgrade> {
-  const base64 = weapon.drawingDataUrl?.split(',')[1] ?? ''
+  const [imgHeader, base64] = (weapon.drawingDataUrl ?? '').split(',')
+  const mediaType = (imgHeader?.match(/data:([^;]+);/) ?? [])[1] ?? 'image/png'
   try {
     const res = await fetch('/api/upgrade', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        imageBase64: base64,
+        imageBase64: base64 ?? '',
+        mediaType,
         element: weapon.element,
         weaponName: weapon.weaponName,
         isMelee: weapon.isMelee,
