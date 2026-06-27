@@ -63,9 +63,6 @@ export function RoomLobby({ onJoin, onShowGallery }: Props) {
             🤖 Solo Practice (vs CPU)
           </button>
 
-          <button className="lobby-btn ghost" onClick={onShowGallery}>
-            🖼️ View Gallery
-          </button>
         </div>
 
         <div className="controls-hint">
