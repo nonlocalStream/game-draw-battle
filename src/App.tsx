@@ -120,6 +120,7 @@ export default function App() {
   const handleGallerySelect = useCallback((weapon: WeaponData) => {
     setMyWeapon(weapon)
     setShowGallery(false)
+
     if (isSolo) {
       const cpuElement = randomElement()
       setOpponentWeapon({
@@ -127,9 +128,17 @@ export default function App() {
         isMelee: ELEMENT_STATS[cpuElement].isMelee,
         description: '', drawingDataUrl: ''
       })
+      setPhase('recognition')
+    } else {
+      // Multiplayer: broadcast weapon and wait for opponent
+      channelRef.ch?.send({
+        type: 'broadcast',
+        event: 'ready',
+        payload: { playerId, data: weapon }
+      })
+      setPhase('waiting')
     }
-    setPhase('recognition')
-  }, [isSolo])
+  }, [isSolo, channelRef])
 
   const startBattle = useCallback(() => {
     if (!myWeapon || !opponentWeapon) return
@@ -203,6 +212,7 @@ export default function App() {
           onSubmit={handleDrawingSubmit}
           isSolo={isSolo}
           opponentStatus={opponentDrawingStatus}
+          onOpenGallery={() => setShowGallery(true)}
         />
       )}
 

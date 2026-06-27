@@ -95,14 +95,13 @@ export function getCharFrame(player: PlayerState, time: number, spriteRow: numbe
 
   if (facing === 'up') return { col: 6, row, flipX: false }
 
-  if (facing === 'left') {
-    // Alternate cols 4 ↔ 5 every 200ms while moving
-    const col = isMoving ? (Math.floor(time / 200) % 2 === 0 ? 4 : 5) : 4
-    return { col, row, flipX: true }
-  }
-  if (facing === 'right') {
-    const col = isMoving ? (Math.floor(time / 200) % 2 === 0 ? 4 : 5) : 4
-    return { col, row, flipX: false }
+  if (facing === 'left' || facing === 'right') {
+    const flipX = facing === 'left'
+    if (!isMoving) return { col: 4, row, flipX }
+    // 4-phase walk cycle: leg-back(3) → neutral(4) → leg-forward(5) → neutral(4)
+    const phase = Math.floor(time / 150) % 4
+    const col = [3, 4, 5, 4][phase]
+    return { col, row, flipX }
   }
 
   // Facing down: idle bob (0↔1) or walk (0↔2)

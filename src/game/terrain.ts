@@ -43,7 +43,7 @@ export function collidesWithMap(x: number, y: number, radius = 12): boolean {
   return offsets.some(([dx, dy]) => !isWalkablePixel(x + dx, y + dy))
 }
 
-export function getRandomWalkableTile(): { x: number; y: number } {
+export function getAllWalkableTiles(): { x: number; y: number }[] {
   const walkable: { x: number; y: number }[] = []
   for (let r = 1; r < MAP_ROWS - 1; r++) {
     for (let c = 1; c < MAP_COLS - 1; c++) {
@@ -52,6 +52,11 @@ export function getRandomWalkableTile(): { x: number; y: number } {
       }
     }
   }
+  return walkable
+}
+
+export function getRandomWalkableTile(): { x: number; y: number } {
+  const walkable = getAllWalkableTiles()
   return walkable[Math.floor(Math.random() * walkable.length)]
 }
 

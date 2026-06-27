@@ -4,11 +4,12 @@ interface Props {
   onSubmit: (dataUrl: string) => void
   isSolo?: boolean
   opponentStatus?: { name: string; status: 'drawing' | 'ready' } | null
+  onOpenGallery?: () => void
 }
 
 const COLORS = ['#333333', '#E53935', '#1E88E5', '#43A047', '#F57F17', '#FF7043']
 
-export function DrawingCanvas({ onSubmit, isSolo, opponentStatus }: Props) {
+export function DrawingCanvas({ onSubmit, isSolo, opponentStatus, onOpenGallery }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const drawing = useRef(false)
   const lastPos = useRef({ x: 0, y: 0 })
@@ -195,6 +196,12 @@ export function DrawingCanvas({ onSubmit, isSolo, opponentStatus }: Props) {
           </button>
 
           <p className="hint-text">Hint: sword, wave, flame, tree, rock...</p>
+
+          {onOpenGallery && (
+            <button className="tool-btn gallery-shortcut-btn" onClick={onOpenGallery}>
+              🖼️ Use from Gallery
+            </button>
+          )}
         </div>
       </div>
     </div>

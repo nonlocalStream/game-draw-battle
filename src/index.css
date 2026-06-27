@@ -389,6 +389,11 @@ body {
   font-style: italic;
 }
 
+.gallery-shortcut-btn {
+  border-color: #D0C4F7 !important;
+  color: #7B6AA0 !important;
+}
+
 /* ===== Recognition Phase ===== */
 .recognition-phase {
   width: 100%;

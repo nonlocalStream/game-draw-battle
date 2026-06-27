@@ -3,11 +3,12 @@ import type { GameState, PlayerState, Projectile, WeaponData } from '../types'
 import { useGameLoop } from '../hooks/useGameLoop'
 import { useKeyboard } from '../hooks/useKeyboard'
 import { useMultiplayer } from '../hooks/useMultiplayer'
-import { tickEngine, applyMeleeHit, getScreenShake } from '../game/engine'
+import { tickEngine, applyMeleeHit, calcMeleeDamage, getScreenShake } from '../game/engine'
 import { movePlayer, fireAttack } from '../game/player'
+import { takeDamage } from '../game/player'
 import { renderFrame, addSwingEffect, addImpactEffect } from '../game/renderer'
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../game/terrain'
-import { createItem } from '../game/items'
+import { createItemsForRoom, createItem } from '../game/items'
 import { loadAssets } from '../game/sprites'
 
 interface Props {
@@ -62,6 +63,7 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
   const gameTimeRef = useRef(0)
   const prevLocalHp = useRef(initialState.localPlayer.hp)
   const prevRemoteHp = useRef(initialState.remotePlayer?.hp ?? 0)
+  const prevRemoteCooldown = useRef(0)
   const [, forceUpdate] = useState(0)
 
   useEffect(() => { loadAssets() }, [])
@@ -69,18 +71,18 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
   const myWeaponRef = useRef(myWeapon)
   useEffect(() => { myWeaponRef.current = myWeapon }, [myWeapon])
 
+  // Seed items from room code so both clients place them identically
   useEffect(() => {
-    stateRef.current = {
-      ...stateRef.current,
-      items: [createItem('PowerShard'), createItem('SpeedBoost'), createItem('ShieldRune')]
-    }
-  }, [])
+    const items = isSolo
+      ? [createItem('PowerShard'), createItem('SpeedBoost'), createItem('ShieldRune')]
+      : createItemsForRoom(roomCode)
+    stateRef.current = { ...stateRef.current, items }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const prevRemoteCooldown = useRef(0)
+  // ── Remote event handlers ──
 
   const handleRemoteState = useCallback((remoteState: PlayerState) => {
     const prev = stateRef.current.remotePlayer
-    // Detect when remote player just fired (cooldown jumped up)
     if (prev && remoteState.attackCooldown > prevRemoteCooldown.current + 100) {
       if (remoteState.isMelee) {
         addSwingEffect(remoteState.x, remoteState.y, remoteState.facing, remoteState.drawingDataUrl)
@@ -91,18 +93,41 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
   }, [])
 
   const handleRemoteProjectile = useCallback((proj: Projectile) => {
-    // Add opponent's projectile to local state so it appears visually and can deal damage
     stateRef.current = {
       ...stateRef.current,
       projectiles: [...stateRef.current.projectiles, proj]
     }
   }, [])
 
-  const { broadcastState, broadcastProjectile } = useMultiplayer(
+  // Remote player hit us with melee — apply damage to ourselves and immediately broadcast
+  const handleRemoteMeleeHit = useCallback((damage: number) => {
+    if (damage <= 0) return
+    const damaged = takeDamage(stateRef.current.localPlayer, damage)
+    addImpactEffect(damaged.x, damaged.y)
+    stateRef.current = { ...stateRef.current, localPlayer: damaged }
+    // Immediate broadcast so attacker sees hp drop without waiting for next interval
+    broadcastStateRef.current(damaged)
+  }, [])
+
+  const handleRemoteItemCollected = useCallback((itemId: string) => {
+    stateRef.current = {
+      ...stateRef.current,
+      items: stateRef.current.items.filter(i => i.id !== itemId)
+    }
+  }, [])
+
+  // Use a ref for broadcastState so handleRemoteMeleeHit can call it without circular dep
+  const broadcastStateRef = useRef<(s: PlayerState) => void>(() => {})
+
+  const { broadcastState, broadcastProjectile, broadcastMeleeHit, broadcastItemCollected } = useMultiplayer(
     roomCode, initialState.localPlayer.id,
-    handleRemoteState, handleRemoteProjectile, () => {},
+    handleRemoteState, handleRemoteProjectile,
+    handleRemoteMeleeHit, handleRemoteItemCollected,
+    () => {},
     !isSolo && !!roomCode
   )
+
+  useEffect(() => { broadcastStateRef.current = broadcastState }, [broadcastState])
 
   const tick = useCallback((dt: number) => {
     const input = keyboardRef.current
@@ -115,33 +140,39 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
     // Attack (on press, not hold)
     if (input.attack && !prevAttack.current) {
       const result = fireAttack(localPlayer)
+
       if (result.meleeHit) {
-        // Swing effect: show drawing as weapon
         addSwingEffect(localPlayer.x, localPlayer.y, localPlayer.facing, localPlayer.drawingDataUrl)
-        if (state.remotePlayer) {
+
+        if (isSolo && state.remotePlayer) {
           const prevHp = state.remotePlayer.hp
           const damaged = applyMeleeHit(localPlayer, state.remotePlayer, result.meleeHit)
           if (damaged.hp < prevHp) addImpactEffect(state.remotePlayer.x, state.remotePlayer.y)
           state = { ...state, remotePlayer: damaged }
+        } else if (!isSolo && state.remotePlayer) {
+          // Multiplayer: broadcast damage amount; remote applies to themselves
+          const dmg = calcMeleeDamage(localPlayer, state.remotePlayer.element, result.meleeHit, state.remotePlayer)
+          if (dmg > 0) broadcastMeleeHit(dmg)
         }
       }
+
       if (result.projectile) {
         state = { ...state, projectiles: [...state.projectiles, result.projectile] }
-        broadcastProjectile(result.projectile)
+        if (!isSolo) broadcastProjectile(result.projectile)
       }
+
       localPlayer = result.player
     }
     prevAttack.current = input.attack
     state = { ...state, localPlayer }
 
-    // CPU AI
+    // CPU AI (solo only)
     if (isSolo && state.remotePlayer) {
       const cpuResult = cpuTick(state.remotePlayer, state.localPlayer, dt)
       let remotePlayer = cpuResult.player
       if (cpuResult.projectile) {
         state = { ...state, projectiles: [...state.projectiles, cpuResult.projectile] }
       }
-      // CPU melee
       if (remotePlayer.isMelee && remotePlayer.attackCooldown <= 0) {
         const dist = Math.hypot(remotePlayer.x - state.localPlayer.x, remotePlayer.y - state.localPlayer.y)
         if (dist < 54 && Math.random() < 0.015) {
@@ -159,18 +190,30 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
       state = { ...state, remotePlayer }
     }
 
-    // Detect hp drops from projectile hits (done by engine)
+    // Track item counts before engine tick
+    const prevItemIds = new Set(state.items.map(i => i.id))
     const prevLHp = prevLocalHp.current
     const prevRHp = prevRemoteHp.current
     const prevAttackLevel = state.localPlayer.attackLevel
-    state = tickEngine(state, dt)
 
+    state = tickEngine(state, dt, isSolo)
+
+    // Detect hp drops from projectile hits
     if (state.localPlayer.hp < prevLHp) addImpactEffect(state.localPlayer.x, state.localPlayer.y)
     if (state.remotePlayer && state.remotePlayer.hp < prevRHp) addImpactEffect(state.remotePlayer.x, state.remotePlayer.y)
     prevLocalHp.current = state.localPlayer.hp
     prevRemoteHp.current = state.remotePlayer?.hp ?? 0
 
-    // Apply weapon upgrade name when power shard collected
+    // Broadcast items picked up by local player
+    if (!isSolo) {
+      for (const id of prevItemIds) {
+        if (!state.items.some(i => i.id === id)) {
+          broadcastItemCollected(id)
+        }
+      }
+    }
+
+    // Apply weapon upgrade name on PowerShard pickup
     if (state.localPlayer.attackLevel > prevAttackLevel && myWeaponRef.current?.upgrade) {
       state = {
         ...state,
@@ -189,7 +232,6 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
     const canvas = canvasRef.current
     if (canvas) {
       const ctx = canvas.getContext('2d')!
-      // Assign dog (row 0) to the player whose ID sorts first — consistent on both screens
       const remoteId = state.remotePlayer?.id ?? 'zzz'
       const localIsFirst = isSolo || state.localPlayer.id < remoteId
       renderFrame(
@@ -203,7 +245,7 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
 
     if (state.winner) onGameOver(state.winner)
     forceUpdate(n => n + 1)
-  }, [keyboardRef, isSolo, broadcastState, onGameOver])
+  }, [keyboardRef, isSolo, broadcastState, broadcastProjectile, broadcastMeleeHit, broadcastItemCollected, onGameOver])
 
   useGameLoop(tick, !stateRef.current.winner)
 
@@ -217,7 +259,7 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
       <div className="game-hud">
         <div className="hud-player local">
           <div className="hud-label">{local.name}</div>
-          <div className="hud-weapon">{local.weaponName} {local.attackLevel > 0 ? '★' : ''}</div>
+          <div className="hud-weapon">{local.weaponName}{local.attackLevel > 0 ? ' ★' : ''}</div>
           <div className="hud-hp-bar">
             <div className="hud-hp-fill" style={{ width: `${(local.hp / local.maxHp) * 100}%`, background: '#5cb85c' }} />
           </div>
