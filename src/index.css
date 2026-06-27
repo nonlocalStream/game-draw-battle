@@ -252,6 +252,57 @@ body {
   letter-spacing: 0.02em;
 }
 
+/* Opponent status pill in drawing phase */
+.opponent-drawing-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 8px 18px;
+  border-radius: 50px;
+  margin-bottom: 16px;
+  border: 2px solid;
+  transition: all 0.3s ease;
+}
+.opponent-drawing-status.waiting {
+  color: #AAA0C8;
+  border-color: #E0D7FF;
+  background: #F8F4FF;
+}
+.opponent-drawing-status.drawing {
+  color: #5B5BD6;
+  border-color: #C4B5F4;
+  background: #EDE0FF;
+}
+.opponent-drawing-status.ready {
+  color: #2e7d32;
+  border-color: #A5D6A7;
+  background: #E8F5E9;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.waiting {
+  background: #BFBAD8;
+}
+.status-dot.drawing {
+  background: #7C5BD6;
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+.status-dot.ready {
+  background: #43A047;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.7); }
+}
+
 .drawing-tools {
   display: flex;
   flex-direction: column;

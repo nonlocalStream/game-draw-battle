@@ -2,11 +2,13 @@ import { useRef, useEffect, useState, useCallback } from 'react'
 
 interface Props {
   onSubmit: (dataUrl: string) => void
+  isSolo?: boolean
+  opponentStatus?: { name: string; status: 'drawing' | 'ready' } | null
 }
 
 const COLORS = ['#333333', '#E53935', '#1E88E5', '#43A047', '#F57F17', '#FF7043']
 
-export function DrawingCanvas({ onSubmit }: Props) {
+export function DrawingCanvas({ onSubmit, isSolo, opponentStatus }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const drawing = useRef(false)
   const lastPos = useRef({ x: 0, y: 0 })
@@ -122,6 +124,20 @@ export function DrawingCanvas({ onSubmit }: Props) {
     <div className="drawing-phase">
       <h2 className="phase-title">✏️ Draw Your Weapon!</h2>
       <p className="phase-subtitle">Draw anything — the AI will sense its element</p>
+
+      {!isSolo && (
+        <div className={`opponent-drawing-status ${opponentStatus?.status ?? 'waiting'}`}>
+          {!opponentStatus && (
+            <><span className="status-dot waiting" /> Waiting for opponent to join...</>
+          )}
+          {opponentStatus?.status === 'drawing' && (
+            <><span className="status-dot drawing" /> {opponentStatus.name} is drawing...</>
+          )}
+          {opponentStatus?.status === 'ready' && (
+            <><span className="status-dot ready" /> {opponentStatus.name} is ready!</>
+          )}
+        </div>
+      )}
 
       <div className="drawing-layout">
         <div className="drawing-canvas-wrap">

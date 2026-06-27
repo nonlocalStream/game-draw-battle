@@ -37,6 +37,7 @@ export default function App() {
   const [winner, setWinner] = useState<string | null>(null)
   const [recognizing, setRecognizing] = useState(false)
   const [channelRef] = useState<{ ch: RealtimeChannel | null }>({ ch: null })
+  const [opponentDrawingStatus, setOpponentDrawingStatus] = useState<{ name: string; status: 'drawing' | 'ready' } | null>(null)
 
   // Track gallery id of current weapon so we can patch upgrade into it
   const myWeaponGalleryId = useRef<string | null>(null)
@@ -55,11 +56,31 @@ export default function App() {
       const ch = getRoomChannel(code)
       if (ch) {
         channelRef.ch = ch
-        ch.on('broadcast', { event: 'ready' }, ({ payload }: { payload: { playerId: string; data: WeaponData } }) => {
-          if (payload.playerId !== playerId) {
-            setOpponentWeapon(payload.data as WeaponData)
-          }
-        }).subscribe()
+        ch
+          .on('presence', { event: 'sync' }, () => {
+            const state = ch.presenceState<{ playerId: string; name: string; status: 'drawing' | 'ready' }>()
+            const others = Object.values(state).flat().filter(p => p.playerId !== playerId)
+            if (others.length > 0) {
+              const other = others[0]
+              setOpponentDrawingStatus(prev =>
+                // Don't downgrade from 'ready' back to 'drawing' if broadcast already set it
+                prev?.status === 'ready' ? prev : { name: other.name, status: other.status }
+              )
+            } else {
+              setOpponentDrawingStatus(null)
+            }
+          })
+          .on('broadcast', { event: 'ready' }, ({ payload }: { payload: { playerId: string; data: WeaponData } }) => {
+            if (payload.playerId !== playerId) {
+              setOpponentWeapon(payload.data as WeaponData)
+              setOpponentDrawingStatus(prev => ({ name: prev?.name ?? 'Opponent', status: 'ready' }))
+            }
+          })
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              ch.track({ playerId, name, status: 'drawing' })
+            }
+          })
       }
     }
   }, [channelRef])
@@ -149,6 +170,7 @@ export default function App() {
     setOpponentWeapon(null)
     setGameState(null)
     setWinner(null)
+    setOpponentDrawingStatus(null)
     myWeaponGalleryId.current = null
     channelRef.ch?.unsubscribe()
     channelRef.ch = null
@@ -177,7 +199,11 @@ export default function App() {
       )}
 
       {phase === 'drawing' && (
-        <DrawingCanvas onSubmit={handleDrawingSubmit} />
+        <DrawingCanvas
+          onSubmit={handleDrawingSubmit}
+          isSolo={isSolo}
+          opponentStatus={opponentDrawingStatus}
+        />
       )}
 
       {(phase === 'recognition' || phase === 'waiting') && (
