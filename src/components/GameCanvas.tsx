@@ -76,13 +76,31 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
     }
   }, [])
 
+  const prevRemoteCooldown = useRef(0)
+
   const handleRemoteState = useCallback((remoteState: PlayerState) => {
+    const prev = stateRef.current.remotePlayer
+    // Detect when remote player just fired (cooldown jumped up)
+    if (prev && remoteState.attackCooldown > prevRemoteCooldown.current + 100) {
+      if (remoteState.isMelee) {
+        addSwingEffect(remoteState.x, remoteState.y, remoteState.facing, remoteState.drawingDataUrl)
+      }
+    }
+    prevRemoteCooldown.current = remoteState.attackCooldown
     stateRef.current = { ...stateRef.current, remotePlayer: remoteState }
   }, [])
 
-  const { broadcastState } = useMultiplayer(
+  const handleRemoteProjectile = useCallback((proj: Projectile) => {
+    // Add opponent's projectile to local state so it appears visually and can deal damage
+    stateRef.current = {
+      ...stateRef.current,
+      projectiles: [...stateRef.current.projectiles, proj]
+    }
+  }, [])
+
+  const { broadcastState, broadcastProjectile } = useMultiplayer(
     roomCode, initialState.localPlayer.id,
-    handleRemoteState, () => {},
+    handleRemoteState, handleRemoteProjectile, () => {},
     !isSolo && !!roomCode
   )
 
@@ -109,6 +127,7 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
       }
       if (result.projectile) {
         state = { ...state, projectiles: [...state.projectiles, result.projectile] }
+        broadcastProjectile(result.projectile)
       }
       localPlayer = result.player
     }
