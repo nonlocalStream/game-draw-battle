@@ -3,9 +3,12 @@ import type { GameState, PlayerState, Projectile, WeaponData } from '../types'
 import { useGameLoop } from '../hooks/useGameLoop'
 import { useKeyboard } from '../hooks/useKeyboard'
 import { useMultiplayer } from '../hooks/useMultiplayer'
+import { MobileControls } from './MobileControls'
+
+const isMobileDevice = () =>
+  typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
 import { tickEngine, applyMeleeHit, calcMeleeDamage, getScreenShake } from '../game/engine'
-import { movePlayer, fireAttack } from '../game/player'
-import { takeDamage } from '../game/player'
+import { movePlayer, fireAttack, takeDamage } from '../game/player'
 import { renderFrame, addSwingEffect, addImpactEffect } from '../game/renderer'
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../game/terrain'
 import { createItemsForRoom, createItem } from '../game/items'
@@ -58,12 +61,30 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const stateRef = useRef<GameState>(initialState)
   const keyboardRef = useKeyboard(1)
+
+  const isMobile = isMobileDevice()
+  const [isPortrait, setIsPortrait] = useState(
+    () => typeof window !== 'undefined' && window.innerHeight > window.innerWidth
+  )
+  useEffect(() => {
+    if (!isMobile) return
+    const update = () => setIsPortrait(window.innerHeight > window.innerWidth)
+    window.addEventListener('resize', update)
+    window.addEventListener('orientationchange', update)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('orientationchange', update)
+    }
+  }, [isMobile])
   const prevAttack = useRef(false)
   const broadcastIntervalRef = useRef(0)
   const gameTimeRef = useRef(0)
   const prevLocalHp = useRef(initialState.localPlayer.hp)
-  const prevRemoteHp = useRef(initialState.remotePlayer?.hp ?? 0)
-  const prevRemoteCooldown = useRef(0)
+  // Track previous HP per remote player for impact effects
+  const prevRemoteHpRef = useRef<Map<string, number>>(
+    new Map(initialState.remotePlayers.map(p => [p.id, p.hp]))
+  )
+  const prevRemoteCooldownRef = useRef<Map<string, number>>(new Map())
   const [, forceUpdate] = useState(0)
 
   useEffect(() => { loadAssets() }, [])
@@ -71,7 +92,6 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
   const myWeaponRef = useRef(myWeapon)
   useEffect(() => { myWeaponRef.current = myWeapon }, [myWeapon])
 
-  // Seed items from room code so both clients place them identically
   useEffect(() => {
     const items = isSolo
       ? [createItem('PowerShard'), createItem('SpeedBoost'), createItem('ShieldRune')]
@@ -82,14 +102,18 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
   // ── Remote event handlers ──
 
   const handleRemoteState = useCallback((remoteState: PlayerState) => {
-    const prev = stateRef.current.remotePlayer
-    if (prev && remoteState.attackCooldown > prevRemoteCooldown.current + 100) {
-      if (remoteState.isMelee) {
-        addSwingEffect(remoteState.x, remoteState.y, remoteState.facing, remoteState.drawingDataUrl)
-      }
+    const prevCooldown = prevRemoteCooldownRef.current.get(remoteState.id) ?? 0
+    if (remoteState.attackCooldown > prevCooldown + 100 && remoteState.isMelee) {
+      addSwingEffect(remoteState.x, remoteState.y, remoteState.facing, remoteState.drawingDataUrl)
     }
-    prevRemoteCooldown.current = remoteState.attackCooldown
-    stateRef.current = { ...stateRef.current, remotePlayer: remoteState }
+    prevRemoteCooldownRef.current.set(remoteState.id, remoteState.attackCooldown)
+
+    const existing = stateRef.current.remotePlayers
+    const idx = existing.findIndex(p => p.id === remoteState.id)
+    const remotePlayers = idx >= 0
+      ? existing.map((p, i) => i === idx ? remoteState : p)
+      : [...existing, remoteState]
+    stateRef.current = { ...stateRef.current, remotePlayers }
   }, [])
 
   const handleRemoteProjectile = useCallback((proj: Projectile) => {
@@ -99,13 +123,12 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
     }
   }, [])
 
-  // Remote player hit us with melee — apply damage to ourselves and immediately broadcast
-  const handleRemoteMeleeHit = useCallback((damage: number) => {
-    if (damage <= 0) return
+  // Only apply melee damage if we are the intended target
+  const handleRemoteMeleeHit = useCallback((damage: number, targetId: string) => {
+    if (targetId !== stateRef.current.localPlayer.id || damage <= 0) return
     const damaged = takeDamage(stateRef.current.localPlayer, damage)
     addImpactEffect(damaged.x, damaged.y)
     stateRef.current = { ...stateRef.current, localPlayer: damaged }
-    // Immediate broadcast so attacker sees hp drop without waiting for next interval
     broadcastStateRef.current(damaged)
   }, [])
 
@@ -116,7 +139,6 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
     }
   }, [])
 
-  // Use a ref for broadcastState so handleRemoteMeleeHit can call it without circular dep
   const broadcastStateRef = useRef<(s: PlayerState) => void>(() => {})
 
   const { broadcastState, broadcastProjectile, broadcastMeleeHit, broadcastItemCollected } = useMultiplayer(
@@ -134,25 +156,26 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
     let state = stateRef.current
     gameTimeRef.current += dt
 
-    // Move local player
     let localPlayer = movePlayer(state.localPlayer, input, dt)
 
-    // Attack (on press, not hold)
     if (input.attack && !prevAttack.current) {
       const result = fireAttack(localPlayer)
 
       if (result.meleeHit) {
         addSwingEffect(localPlayer.x, localPlayer.y, localPlayer.facing, localPlayer.drawingDataUrl)
 
-        if (isSolo && state.remotePlayer) {
-          const prevHp = state.remotePlayer.hp
-          const damaged = applyMeleeHit(localPlayer, state.remotePlayer, result.meleeHit)
-          if (damaged.hp < prevHp) addImpactEffect(state.remotePlayer.x, state.remotePlayer.y)
-          state = { ...state, remotePlayer: damaged }
-        } else if (!isSolo && state.remotePlayer) {
-          // Multiplayer: broadcast damage amount; remote applies to themselves
-          const dmg = calcMeleeDamage(localPlayer, state.remotePlayer.element, result.meleeHit, state.remotePlayer)
-          if (dmg > 0) broadcastMeleeHit(dmg)
+        if (isSolo && state.remotePlayers.length > 0) {
+          const cpu = state.remotePlayers[0]
+          const prevHp = cpu.hp
+          const damaged = applyMeleeHit(localPlayer, cpu, result.meleeHit)
+          if (damaged.hp < prevHp) addImpactEffect(cpu.x, cpu.y)
+          state = { ...state, remotePlayers: [damaged, ...state.remotePlayers.slice(1)] }
+        } else if (!isSolo) {
+          for (const rp of state.remotePlayers) {
+            if (rp.dead) continue
+            const dmg = calcMeleeDamage(localPlayer, rp.element, result.meleeHit, rp)
+            if (dmg > 0) broadcastMeleeHit(dmg, rp.id)
+          }
         }
       }
 
@@ -166,54 +189,51 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
     prevAttack.current = input.attack
     state = { ...state, localPlayer }
 
-    // CPU AI (solo only)
-    if (isSolo && state.remotePlayer) {
-      const cpuResult = cpuTick(state.remotePlayer, state.localPlayer, dt)
-      let remotePlayer = cpuResult.player
+    // CPU AI (solo only — targets first remote player)
+    if (isSolo && state.remotePlayers.length > 0) {
+      const cpuResult = cpuTick(state.remotePlayers[0], state.localPlayer, dt)
+      let cpu = cpuResult.player
       if (cpuResult.projectile) {
         state = { ...state, projectiles: [...state.projectiles, cpuResult.projectile] }
       }
-      if (remotePlayer.isMelee && remotePlayer.attackCooldown <= 0) {
-        const dist = Math.hypot(remotePlayer.x - state.localPlayer.x, remotePlayer.y - state.localPlayer.y)
+      if (cpu.isMelee && cpu.attackCooldown <= 0) {
+        const dist = Math.hypot(cpu.x - state.localPlayer.x, cpu.y - state.localPlayer.y)
         if (dist < 54 && Math.random() < 0.015) {
           const dirs: Record<string, [number, number]> = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] }
-          const [ddx, ddy] = dirs[remotePlayer.facing]
-          const hit = { x: remotePlayer.x + ddx * 36, y: remotePlayer.y + ddy * 36, range: 28 }
-          addSwingEffect(remotePlayer.x, remotePlayer.y, remotePlayer.facing, remotePlayer.drawingDataUrl)
+          const [ddx, ddy] = dirs[cpu.facing]
+          const hit = { x: cpu.x + ddx * 36, y: cpu.y + ddy * 36, range: 28 }
+          addSwingEffect(cpu.x, cpu.y, cpu.facing, cpu.drawingDataUrl)
           const prevHp = state.localPlayer.hp
-          const hitLocal = applyMeleeHit(remotePlayer, state.localPlayer, hit)
+          const hitLocal = applyMeleeHit(cpu, state.localPlayer, hit)
           if (hitLocal.hp < prevHp) addImpactEffect(state.localPlayer.x, state.localPlayer.y)
           state = { ...state, localPlayer: hitLocal }
-          remotePlayer = { ...remotePlayer, attackCooldown: 600 }
+          cpu = { ...cpu, attackCooldown: 600 }
         }
       }
-      state = { ...state, remotePlayer }
+      state = { ...state, remotePlayers: [cpu, ...state.remotePlayers.slice(1)] }
     }
 
-    // Track item counts before engine tick
     const prevItemIds = new Set(state.items.map(i => i.id))
     const prevLHp = prevLocalHp.current
-    const prevRHp = prevRemoteHp.current
     const prevAttackLevel = state.localPlayer.attackLevel
 
     state = tickEngine(state, dt, isSolo)
 
-    // Detect hp drops from projectile hits
+    // Impact effects
     if (state.localPlayer.hp < prevLHp) addImpactEffect(state.localPlayer.x, state.localPlayer.y)
-    if (state.remotePlayer && state.remotePlayer.hp < prevRHp) addImpactEffect(state.remotePlayer.x, state.remotePlayer.y)
+    for (const rp of state.remotePlayers) {
+      const prevHp = prevRemoteHpRef.current.get(rp.id) ?? rp.hp
+      if (rp.hp < prevHp) addImpactEffect(rp.x, rp.y)
+      prevRemoteHpRef.current.set(rp.id, rp.hp)
+    }
     prevLocalHp.current = state.localPlayer.hp
-    prevRemoteHp.current = state.remotePlayer?.hp ?? 0
 
-    // Broadcast items picked up by local player
     if (!isSolo) {
       for (const id of prevItemIds) {
-        if (!state.items.some(i => i.id === id)) {
-          broadcastItemCollected(id)
-        }
+        if (!state.items.some(i => i.id === id)) broadcastItemCollected(id)
       }
     }
 
-    // Apply weapon upgrade name on PowerShard pickup
     if (state.localPlayer.attackLevel > prevAttackLevel && myWeaponRef.current?.upgrade) {
       state = {
         ...state,
@@ -223,8 +243,9 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
 
     stateRef.current = state
 
+    // Throttled broadcast: 100ms (10fps) — keeps well under Supabase free tier for 6 players
     broadcastIntervalRef.current += dt
-    if (broadcastIntervalRef.current >= 50) {
+    if (broadcastIntervalRef.current >= 100) {
       broadcastIntervalRef.current = 0
       broadcastState(state.localPlayer)
     }
@@ -232,15 +253,7 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
     const canvas = canvasRef.current
     if (canvas) {
       const ctx = canvas.getContext('2d')!
-      const remoteId = state.remotePlayer?.id ?? 'zzz'
-      const localIsFirst = isSolo || state.localPlayer.id < remoteId
-      renderFrame(
-        ctx, state.localPlayer, state.remotePlayer,
-        state.projectiles, state.items,
-        gameTimeRef.current, dt, getScreenShake(),
-        localIsFirst ? 0 : 1,
-        localIsFirst ? 1 : 0,
-      )
+      renderFrame(ctx, state.localPlayer, state.remotePlayers, state.projectiles, state.items, gameTimeRef.current, dt, getScreenShake())
     }
 
     if (state.winner) onGameOver(state.winner)
@@ -250,10 +263,17 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
   useGameLoop(tick, !stateRef.current.winner)
 
   const local = stateRef.current.localPlayer
-  const remote = stateRef.current.remotePlayer
+  const remotePlayers = stateRef.current.remotePlayers
 
   return (
     <div className="game-canvas-wrap">
+      {isMobile && isPortrait && (
+        <div className="rotate-overlay">
+          <div className="rotate-icon">📱</div>
+          <p className="rotate-text">Rotate to landscape<br />to play</p>
+        </div>
+      )}
+
       <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} className="game-canvas" />
 
       <div className="game-hud">
@@ -266,23 +286,24 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
           <span className="hud-hp-text">{Math.ceil(local.hp)}/{local.maxHp}</span>
         </div>
 
-        <div className="hud-vs">VS</div>
+        <div className="hud-vs">{remotePlayers.length > 1 ? `VS ${remotePlayers.length}` : 'VS'}</div>
 
-        {remote && (
-          <div className="hud-player remote">
-            <div className="hud-label">{remote.name}</div>
-            <div className="hud-weapon">{remote.weaponName}</div>
+        {remotePlayers.slice(0, 5).map(rp => (
+          <div key={rp.id} className="hud-player remote" style={{ opacity: rp.dead ? 0.4 : 1 }}>
+            <div className="hud-label">{rp.name}{rp.dead ? ' 💀' : ''}</div>
+            <div className="hud-weapon">{rp.weaponName}</div>
             <div className="hud-hp-bar">
-              <div className="hud-hp-fill" style={{ width: `${(remote.hp / remote.maxHp) * 100}%`, background: '#d9534f' }} />
+              <div className="hud-hp-fill" style={{ width: `${(rp.hp / rp.maxHp) * 100}%`, background: '#d9534f' }} />
             </div>
-            <span className="hud-hp-text">{Math.ceil(remote.hp)}/{remote.maxHp}</span>
+            <span className="hud-hp-text">{Math.ceil(Math.max(0, rp.hp))}/{rp.maxHp}</span>
           </div>
-        )}
+        ))}
       </div>
 
-      <div className="game-controls-hint">
-        Arrow keys move · Space attack · Shift defend
-      </div>
+      {isMobile && !isPortrait
+        ? <MobileControls inputRef={keyboardRef} />
+        : <div className="game-controls-hint">Arrow keys · Space attack · Shift defend</div>
+      }
     </div>
   )
 }

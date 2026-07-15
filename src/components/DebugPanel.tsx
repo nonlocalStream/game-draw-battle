@@ -1,12 +1,19 @@
 import { useState } from 'react'
 import type { DebugEntry } from '../lib/anthropic'
 
-interface Props {
-  entries: DebugEntry[]
+export interface DebugSettings {
+  drawTimeLimit: number  // seconds
 }
 
-export function DebugPanel({ entries }: Props) {
-  const [open, setOpen] = useState(true)
+interface Props {
+  entries: DebugEntry[]
+  settings: DebugSettings
+  onSettings: (s: DebugSettings) => void
+}
+
+export function DebugPanel({ entries, settings, onSettings }: Props) {
+  const [open, setOpen] = useState(false)
+  const [tab, setTab] = useState<'llm' | 'settings'>('llm')
   const [selected, setSelected] = useState<number>(0)
 
   const entry = entries[selected]
@@ -42,12 +49,46 @@ export function DebugPanel({ entries }: Props) {
         }}
       >
         <span style={{ fontWeight: 700, color: '#C4B5F4' }}>
-          🔬 LLM Debug {entries.length > 0 && `(${entries.length})`}
+          🔬 Debug {entries.length > 0 && `(${entries.length})`}
         </span>
         <span style={{ color: '#8B7FB0' }}>{open ? '▼' : '▲'}</span>
       </div>
 
       {open && (
+        <>
+        {/* Tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid rgba(155,127,232,0.2)' }}>
+          {(['llm', 'settings'] as const).map(t => (
+            <button key={t} onClick={e => { e.stopPropagation(); setTab(t) }} style={{
+              flex: 1, padding: '5px 0', border: 'none', cursor: 'pointer', fontSize: 10, fontWeight: 700,
+              background: tab === t ? 'rgba(155,127,232,0.25)' : 'transparent',
+              color: tab === t ? '#C4B5F4' : '#8B7FB0',
+              borderBottom: tab === t ? '2px solid #9B7FE8' : '2px solid transparent',
+            }}>
+              {t === 'llm' ? 'LLM Calls' : 'Settings'}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'settings' && (
+          <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <label style={{ color: '#C4B5F4', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+                Draw Time Limit: {settings.drawTimeLimit}s
+              </label>
+              <input
+                type="range" min={10} max={300} step={5} value={settings.drawTimeLimit}
+                onChange={e => onSettings({ ...settings, drawTimeLimit: Number(e.target.value) })}
+                style={{ width: '100%', accentColor: '#9B7FE8' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#8B7FB0', fontSize: 10 }}>
+                <span>10s</span><span>300s</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === 'llm' && (
         <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 500, overflowY: 'auto' }}>
           {entries.length === 0 ? (
             <div style={{ color: '#8B7FB0', textAlign: 'center', padding: '20px 0' }}>
@@ -132,6 +173,8 @@ export function DebugPanel({ entries }: Props) {
             </>
           )}
         </div>
+        )}
+        </>
       )}
     </div>
   )

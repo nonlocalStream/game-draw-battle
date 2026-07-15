@@ -1,7 +1,7 @@
 import type { PlayerState, Projectile, MapItem, Facing } from '../types'
 import { ELEMENT_STATS } from './elements'
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './terrain'
-import { getAssets, getCharFrame, drawSpriteFrame } from './sprites'
+import { getAssets, getCharFrame, drawSpriteFrame, PLAYER_SLOT_CONFIGS } from './sprites'
 
 let _screenShake = 0
 export function getScreenShake(): number { return _screenShake }
@@ -58,14 +58,12 @@ export function addImpactEffect(x: number, y: number): void {
 export function renderFrame(
   ctx: CanvasRenderingContext2D,
   localPlayer: PlayerState,
-  remotePlayer: PlayerState | null,
+  remotePlayers: PlayerState[],
   projectiles: Projectile[],
   items: MapItem[],
   time: number,
   dt: number,
   shake: number,
-  localSpriteRow: number = 0,
-  remoteSpriteRow: number = 1,
 ): void {
   _screenShake = Math.max(0, _screenShake - dt * 0.003)
 
@@ -78,14 +76,9 @@ export function renderFrame(
   drawBackground(ctx)
   drawItems(ctx, items, time)
 
-  // Y-sort players
-  const players = [
-    { p: localPlayer, spriteRow: localSpriteRow },
-    ...(remotePlayer ? [{ p: remotePlayer, spriteRow: remoteSpriteRow }] : [])
-  ].sort((a, b) => a.p.y - b.p.y)
-
-  for (const { p, spriteRow } of players) {
-    if (!p.dead) drawPlayer(ctx, p, spriteRow, time)
+  const players = [localPlayer, ...remotePlayers].sort((a, b) => a.y - b.y)
+  for (const p of players) {
+    if (!p.dead) drawPlayer(ctx, p, time)
   }
 
   tickAndDrawSwings(ctx, dt)
@@ -110,10 +103,11 @@ function drawBackground(ctx: CanvasRenderingContext2D): void {
 
 const CHAR_W = 52, CHAR_H = 62
 
-function drawPlayer(ctx: CanvasRenderingContext2D, player: PlayerState, spriteRow: number, time: number): void {
+function drawPlayer(ctx: CanvasRenderingContext2D, player: PlayerState, time: number): void {
   const assets = getAssets()
-  const { x, y, element, hitFlash, isDefending, shieldTimer, attackLevel } = player
+  const { x, y, element, hitFlash, isDefending, shieldTimer, attackLevel, slotIndex } = player
   const stats = ELEMENT_STATS[element]
+  const slot = PLAYER_SLOT_CONFIGS[slotIndex % PLAYER_SLOT_CONFIGS.length]
 
   ctx.save()
   ctx.translate(x, y)
@@ -125,13 +119,13 @@ function drawPlayer(ctx: CanvasRenderingContext2D, player: PlayerState, spriteRo
   ctx.fill()
 
   if (assets) {
-    const { col, row, flipX } = getCharFrame(player, time, spriteRow)
-
-    if (hitFlash > 0) ctx.filter = 'brightness(8) saturate(0)'
+    const { col, row, flipX } = getCharFrame(player, time, slot.spriteRow)
+    const activeFilter = hitFlash > 0 ? 'brightness(8) saturate(0)' : slot.filter
 
     // Upgrade glow
     if (attackLevel > 0) {
       ctx.save()
+      ctx.filter = activeFilter
       ctx.shadowBlur = 20 + Math.sin(time * 0.006) * 6
       ctx.shadowColor = stats.glowColor
       ctx.globalAlpha = 0.45
@@ -139,6 +133,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, player: PlayerState, spriteRo
       ctx.restore()
     }
 
+    ctx.filter = activeFilter
     drawSpriteFrame(ctx, assets.characters, col, row, -CHAR_W / 2, -CHAR_H / 2, CHAR_W, CHAR_H, flipX)
     ctx.filter = 'none'
   } else {
@@ -158,8 +153,8 @@ function drawPlayer(ctx: CanvasRenderingContext2D, player: PlayerState, spriteRo
   // Name tag
   ctx.font = 'bold 10px Nunito, sans-serif'
   ctx.textAlign = 'center'
-  ctx.fillStyle = spriteRow === 0 ? '#1a3d0a' : '#5c0f0f'
-  ctx.strokeStyle = 'rgba(255,255,255,0.7)'
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)'
+  ctx.fillStyle = slot.nameColor
   ctx.lineWidth = 3
   ctx.strokeText(player.name.slice(0, 10), x, y - CHAR_H / 2 - 16)
   ctx.fillText(player.name.slice(0, 10), x, y - CHAR_H / 2 - 16)

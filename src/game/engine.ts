@@ -11,13 +11,13 @@ let screenShake = 0
 export function getScreenShake(): number { return screenShake }
 
 // isSolo=true: full authoritative sim (single screen handles everything)
-// isSolo=false: multiplayer — skip damage/items on remotePlayer; each player handles own state
+// isSolo=false: multiplayer — skip damage/items on remotePlayers; each player handles own state
 export function tickEngine(state: GameState, dt: number, isSolo = true): GameState {
-  let { localPlayer, remotePlayer, projectiles, items } = state
+  let { localPlayer, projectiles, items } = state
+  let remotePlayers = state.remotePlayers
 
   screenShake = Math.max(0, screenShake - dt * 0.01)
 
-  // Only spawn items in solo (multiplayer uses seeded initial items)
   itemSpawnTimer += dt
   if (isSolo && itemSpawnTimer >= ITEM_SPAWN_INTERVAL && items.length < 5) {
     items = [...items, createItem()]
@@ -26,7 +26,6 @@ export function tickEngine(state: GameState, dt: number, isSolo = true): GameSta
 
   items = tickItems(items, dt)
 
-  // Tick projectiles
   projectiles = projectiles
     .map(p => ({ ...p, x: p.x + p.vx, y: p.y + p.vy, age: p.age + dt }))
     .filter(p => {
@@ -36,13 +35,12 @@ export function tickEngine(state: GameState, dt: number, isSolo = true): GameSta
       return true
     })
 
-  // Projectile vs players
   const surviving: Projectile[] = []
   for (const proj of projectiles) {
     let hit = false
 
-    // Always check hit on local player (we are authoritative over ourselves)
-    if (proj.ownerId !== localPlayer.id && !localPlayer.dead) {
+    // Local player is always authoritative over their own HP
+    if (!hit && proj.ownerId !== localPlayer.id && !localPlayer.dead) {
       const dist = Math.hypot(proj.x - localPlayer.x, proj.y - localPlayer.y)
       if (dist < proj.radius + 14) {
         const mult = getElementAdvantage(proj.element, localPlayer.element)
@@ -53,17 +51,28 @@ export function tickEngine(state: GameState, dt: number, isSolo = true): GameSta
       }
     }
 
-    // Only apply damage to remote in solo mode; in multiplayer remote handles their own HP
-    if (!hit && remotePlayer && proj.ownerId !== remotePlayer.id && !remotePlayer.dead) {
-      const dist = Math.hypot(proj.x - remotePlayer.x, proj.y - remotePlayer.y)
-      if (dist < proj.radius + 14) {
-        if (isSolo) {
-          const mult = getElementAdvantage(proj.element, remotePlayer.element)
-          remotePlayer = takeDamage(remotePlayer, proj.damage * mult)
-          if (proj.slowEffect) remotePlayer = { ...remotePlayer, slowTimer: 2000, isSlowed: true }
+    // In solo only: apply damage to remote players (we're authoritative for everyone)
+    // In multiplayer: just consume the projectile so it doesn't pass through visually
+    if (!hit && isSolo) {
+      for (let i = 0; i < remotePlayers.length; i++) {
+        const rp = remotePlayers[i]
+        if (proj.ownerId === rp.id || rp.dead) continue
+        const dist = Math.hypot(proj.x - rp.x, proj.y - rp.y)
+        if (dist < proj.radius + 14) {
+          const mult = getElementAdvantage(proj.element, rp.element)
+          let damaged = takeDamage(rp, proj.damage * mult)
+          if (proj.slowEffect) damaged = { ...damaged, slowTimer: 2000, isSlowed: true }
+          remotePlayers = remotePlayers.map((p, j) => j === i ? damaged : p)
           screenShake = 0.5
+          hit = true
+          break
         }
-        hit = true // consume projectile either way
+      }
+    } else if (!hit && !isSolo) {
+      for (const rp of remotePlayers) {
+        if (proj.ownerId === rp.id || rp.dead) continue
+        const dist = Math.hypot(proj.x - rp.x, proj.y - rp.y)
+        if (dist < proj.radius + 14) { hit = true; break }
       }
     }
 
@@ -71,28 +80,36 @@ export function tickEngine(state: GameState, dt: number, isSolo = true): GameSta
   }
   projectiles = surviving
 
-  // Items pickup — in multiplayer, only local player picks up; remote handles themselves
   const remainingItems: MapItem[] = []
   for (const item of items) {
     let picked = false
     if (!localPlayer.dead && Math.hypot(item.x - localPlayer.x, item.y - localPlayer.y) < 22) {
       localPlayer = applyItem(localPlayer, item)
       picked = true
-    } else if (isSolo && remotePlayer && !remotePlayer.dead && Math.hypot(item.x - remotePlayer.x, item.y - remotePlayer.y) < 22) {
-      remotePlayer = applyItem(remotePlayer, item)
-      picked = true
+    } else if (isSolo) {
+      for (let i = 0; i < remotePlayers.length; i++) {
+        const rp = remotePlayers[i]
+        if (!rp.dead && Math.hypot(item.x - rp.x, item.y - rp.y) < 22) {
+          remotePlayers = remotePlayers.map((p, j) => j === i ? applyItem(p, item) : p)
+          picked = true
+          break
+        }
+      }
     }
     if (!picked) remainingItems.push(item)
   }
 
-  // Winner detection
+  // Last player alive wins
   let winner = state.winner
   if (!winner) {
-    if (localPlayer.dead) winner = remotePlayer?.name ?? 'Opponent'
-    else if (remotePlayer?.dead) winner = localPlayer.name
+    const alive = [
+      ...(!localPlayer.dead ? [localPlayer] : []),
+      ...remotePlayers.filter(p => !p.dead),
+    ]
+    if (alive.length <= 1) winner = alive[0]?.name ?? 'Draw'
   }
 
-  return { ...state, localPlayer, remotePlayer, projectiles, items: remainingItems, winner, tick: state.tick + 1 }
+  return { ...state, localPlayer, remotePlayers, projectiles, items: remainingItems, winner, tick: state.tick + 1 }
 }
 
 export function applyMeleeHit(

@@ -427,6 +427,7 @@ body {
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { from { opacity: 1; transform: scale(1); } to { opacity: 0.6; transform: scale(1.08); } }
 
 .waiting-card {
   background: white;
@@ -978,3 +979,123 @@ body {
   .timer-ring-wrap { flex-direction: row; }
   .game-canvas { width: 100%; }
 }
+
+/* ===== Rotate-to-landscape overlay ===== */
+.rotate-overlay {
+  position: fixed;
+  inset: 0;
+  background: #0d0d1a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  z-index: 999;
+}
+.rotate-icon {
+  font-size: 4rem;
+  animation: rotate-hint 2.4s ease-in-out infinite;
+}
+@keyframes rotate-hint {
+  0%, 30%  { transform: rotate(0deg); }
+  60%, 90% { transform: rotate(90deg); }
+  100%     { transform: rotate(0deg); }
+}
+.rotate-text {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.75rem;
+  color: #9B7FE8;
+  text-align: center;
+  line-height: 2;
+}
+
+/* ===== Mobile game controls (GameBoy style) ===== */
+.mobile-controls {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 0 28px 28px;
+  z-index: 30;
+  pointer-events: none;
+}
+
+/* D-pad: circular touch zone with 4 arrows */
+.dpad {
+  position: relative;
+  width: 136px;
+  height: 136px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(155, 127, 232, 0.35);
+  border-radius: 50%;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.dpad-arr {
+  position: absolute;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 1rem;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+.dpad-u { top: 10px;  left: 50%; transform: translateX(-50%); }
+.dpad-d { bottom: 10px; left: 50%; transform: translateX(-50%); }
+.dpad-l { left: 10px; top: 50%; transform: translateY(-50%); }
+.dpad-r { right: 10px; top: 50%; transform: translateY(-50%); }
+.dpad-dot {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: rgba(155, 127, 232, 0.25);
+  pointer-events: none;
+}
+
+/* A / B buttons: vertically stacked */
+.action-btns {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  pointer-events: none;
+}
+.action-btn {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 5px 14px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.15);
+  transition: transform 0.07s, box-shadow 0.07s;
+}
+.action-btn:active { transform: scale(0.9); box-shadow: 0 2px 6px rgba(0,0,0,0.5); }
+.btn-letter {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 1rem;
+  line-height: 1;
+  color: #fff;
+}
+.btn-sub {
+  font-size: 0.45rem;
+  color: rgba(255,255,255,0.7);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+}
+.btn-b { background: #1565C0; }
+.btn-a { background: #B71C1C; }

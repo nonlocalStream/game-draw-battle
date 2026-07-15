@@ -81,6 +81,22 @@ export async function loadAssets(): Promise<GameAssets> {
 
 export function getAssets(): GameAssets | null { return _assets }
 
+export interface SlotConfig {
+  spriteRow: number
+  filter: string   // CSS filter string applied to ctx before drawing
+  nameColor: string
+}
+
+// 6 player slots: 3 sprite types × 2 color variants (white, black, orange)
+export const PLAYER_SLOT_CONFIGS: SlotConfig[] = [
+  { spriteRow: 0, filter: 'brightness(4) saturate(0)',                                    nameColor: '#E0E0E0' }, // white dog
+  { spriteRow: 0, filter: 'brightness(0.1) contrast(1.5)',                                nameColor: '#9E9E9E' }, // black dog
+  { spriteRow: 1, filter: 'brightness(4) saturate(0)',                                    nameColor: '#E0E0E0' }, // white cat
+  { spriteRow: 1, filter: 'sepia(1) saturate(5) hue-rotate(5deg) brightness(1.1)',        nameColor: '#FF9800' }, // orange cat
+  { spriteRow: 2, filter: 'brightness(0.1) contrast(1.5)',                                nameColor: '#9E9E9E' }, // black fox
+  { spriteRow: 2, filter: 'sepia(1) saturate(5) hue-rotate(5deg) brightness(1.1)',        nameColor: '#FF9800' }, // orange fox
+]
+
 interface FrameResult { col: number; row: number; flipX: boolean }
 
 // time = elapsed ms (use for frame cycling so it's fps-independent)

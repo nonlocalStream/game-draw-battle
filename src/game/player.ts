@@ -4,7 +4,7 @@ import { collidesWithMap, TILE_SIZE, MAP_COLS, MAP_ROWS } from './terrain'
 
 let projCounter = 0
 
-export function createPlayer(id: string, name: string, element: Element, weaponName: string, isMelee: boolean, drawingDataUrl: string, startX: number, startY: number): PlayerState {
+export function createPlayer(id: string, name: string, element: Element, weaponName: string, isMelee: boolean, drawingDataUrl: string, startX: number, startY: number, slotIndex = 0): PlayerState {
   const stats = ELEMENT_STATS[element]
   return {
     id, name, element, weaponName, isMelee: stats.isMelee || isMelee,
@@ -17,7 +17,7 @@ export function createPlayer(id: string, name: string, element: Element, weaponN
     attackCooldown: 0, hitFlash: 0,
     isSlowed: false, slowTimer: 0,
     isMoving: false,
-    drawingDataUrl, dead: false
+    drawingDataUrl, dead: false, slotIndex
   }
 }
 

@@ -1,12 +1,11 @@
 import { useEffect, useRef, useCallback } from 'react'
-import type { RealtimeChannel } from '@supabase/supabase-js'
-import { getRoomChannel } from '../lib/supabase'
+import { getRoomChannel, type GameChannel } from '../lib/supabase'
 import type { PlayerState, Projectile, RemotePayload } from '../types'
 
 interface MultiplayerHook {
   broadcastState: (state: PlayerState) => void
   broadcastProjectile: (proj: Projectile) => void
-  broadcastMeleeHit: (damage: number) => void
+  broadcastMeleeHit: (damage: number, targetId: string) => void
   broadcastItemCollected: (itemId: string) => void
   broadcastReady: (weaponData: { element: string; weaponName: string; isMelee: boolean }) => void
   connected: boolean
@@ -17,18 +16,18 @@ export function useMultiplayer(
   playerId: string,
   onRemoteState: (state: PlayerState) => void,
   onRemoteProjectile: (proj: Projectile) => void,
-  onRemoteMeleeHit: (damage: number) => void,
+  onRemoteMeleeHit: (damage: number, targetId: string) => void,
   onRemoteItemCollected: (itemId: string) => void,
   onRemoteReady: (data: { element: string; weaponName: string; isMelee: boolean }) => void,
   enabled: boolean
 ): MultiplayerHook {
-  const channelRef = useRef<RealtimeChannel | null>(null)
+  const channelRef = useRef<GameChannel | null>(null)
   const connectedRef = useRef(false)
 
   useEffect(() => {
     if (!enabled || !roomCode) return
 
-    const channel = getRoomChannel(roomCode)
+    const channel = getRoomChannel(roomCode, playerId)
     if (!channel) return
 
     channel
@@ -39,7 +38,10 @@ export function useMultiplayer(
         if (payload.playerId !== playerId) onRemoteProjectile(payload.data as Projectile)
       })
       .on('broadcast', { event: 'melee_hit' }, ({ payload }: { payload: RemotePayload }) => {
-        if (payload.playerId !== playerId) onRemoteMeleeHit(payload.data as number)
+        if (payload.playerId !== playerId) {
+          const { damage, targetId } = payload.data as { damage: number; targetId: string }
+          onRemoteMeleeHit(damage, targetId)
+        }
       })
       .on('broadcast', { event: 'item_collected' }, ({ payload }: { payload: RemotePayload }) => {
         if (payload.playerId !== playerId) onRemoteItemCollected(payload.data as string)
@@ -66,7 +68,7 @@ export function useMultiplayer(
   return {
     broadcastState: useCallback((s) => send('player_state', s), [send]),
     broadcastProjectile: useCallback((p) => send('projectile_fired', p), [send]),
-    broadcastMeleeHit: useCallback((dmg) => send('melee_hit', dmg), [send]),
+    broadcastMeleeHit: useCallback((dmg, targetId) => send('melee_hit', { damage: dmg, targetId }), [send]),
     broadcastItemCollected: useCallback((id) => send('item_collected', id), [send]),
     broadcastReady: useCallback((w) => send('ready', w), [send]),
     connected: connectedRef.current,

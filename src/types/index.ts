@@ -85,11 +85,12 @@ export interface PlayerState {
   drawingDataUrl: string
   dead: boolean
   isMoving: boolean
+  slotIndex: number
 }
 
 export interface GameState {
   localPlayer: PlayerState
-  remotePlayer: PlayerState | null
+  remotePlayers: PlayerState[]
   projectiles: Projectile[]
   items: MapItem[]
   phase: GamePhase

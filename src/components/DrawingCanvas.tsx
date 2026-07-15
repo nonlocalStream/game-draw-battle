@@ -3,13 +3,15 @@ import { useRef, useEffect, useState, useCallback } from 'react'
 interface Props {
   onSubmit: (dataUrl: string) => void
   isSolo?: boolean
-  opponentStatus?: { name: string; status: 'drawing' | 'ready' } | null
+  roomMembers?: Map<string, { name: string; status: 'drawing' | 'ready' }>
+  playerId?: string
   onOpenGallery?: () => void
+  timeLimit?: number  // seconds, default 60
 }
 
 const COLORS = ['#333333', '#E53935', '#1E88E5', '#43A047', '#F57F17', '#FF7043']
 
-export function DrawingCanvas({ onSubmit, isSolo, opponentStatus, onOpenGallery }: Props) {
+export function DrawingCanvas({ onSubmit, isSolo, roomMembers, playerId, onOpenGallery, timeLimit = 60 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const drawing = useRef(false)
   const lastPos = useRef({ x: 0, y: 0 })
@@ -17,6 +19,7 @@ export function DrawingCanvas({ onSubmit, isSolo, opponentStatus, onOpenGallery 
   const [color, setColor] = useState(COLORS[0])
   const [eraser, setEraser] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [timeLeft, setTimeLeft] = useState(timeLimit)
 
   // Canvas starts transparent — no background fill
 
@@ -102,6 +105,13 @@ export function DrawingCanvas({ onSubmit, isSolo, opponentStatus, onOpenGallery 
   }, [submitted, onSubmit])
 
   useEffect(() => {
+    if (submitted) return
+    if (timeLeft <= 0) { handleSubmit(); return }
+    const id = setTimeout(() => setTimeLeft(t => t - 1), 1000)
+    return () => clearTimeout(id)
+  }, [timeLeft, submitted, handleSubmit])
+
+  useEffect(() => {
     const canvas = canvasRef.current!
     canvas.addEventListener('mousedown', startDraw)
     canvas.addEventListener('mousemove', doDraw)
@@ -121,24 +131,46 @@ export function DrawingCanvas({ onSubmit, isSolo, opponentStatus, onOpenGallery 
     }
   }, [startDraw, doDraw])
 
+  const urgent = timeLeft <= 10 && !submitted
+  const mins = Math.floor(timeLeft / 60)
+  const secs = timeLeft % 60
+  const timeStr = mins > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : `${secs}s`
+
   return (
     <div className="drawing-phase">
-      <h2 className="phase-title">✏️ Draw Your Weapon!</h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        <h2 className="phase-title" style={{ margin: 0 }}>✏️ Draw Your Weapon!</h2>
+        <span style={{
+          fontSize: 22, fontWeight: 700, fontFamily: 'monospace', minWidth: 52, textAlign: 'center',
+          color: urgent ? '#EF5350' : '#C4B5F4',
+          animation: urgent ? 'pulse 0.6s ease-in-out infinite alternate' : 'none',
+        }}>
+          {submitted ? '✓' : timeStr}
+        </span>
+      </div>
       <p className="phase-subtitle">Draw anything — the AI will sense its element</p>
 
-      {!isSolo && (
-        <div className={`opponent-drawing-status ${opponentStatus?.status ?? 'waiting'}`}>
-          {!opponentStatus && (
-            <><span className="status-dot waiting" /> Waiting for opponent to join...</>
-          )}
-          {opponentStatus?.status === 'drawing' && (
-            <><span className="status-dot drawing" /> {opponentStatus.name} is drawing...</>
-          )}
-          {opponentStatus?.status === 'ready' && (
-            <><span className="status-dot ready" /> {opponentStatus.name} is ready!</>
-          )}
-        </div>
-      )}
+      {!isSolo && (() => {
+        const others = roomMembers
+          ? Array.from(roomMembers.entries()).filter(([id]) => id !== playerId)
+          : []
+        return (
+          <div className="opponent-drawing-status">
+            {others.length === 0 ? (
+              <><span className="status-dot waiting" /> Waiting for players to join...</>
+            ) : (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+                {others.map(([id, m]) => (
+                  <span key={id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span className={`status-dot ${m.status}`} />
+                    {m.name} {m.status === 'ready' ? '✓' : '...'}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       <div className="drawing-layout">
         <div className="drawing-canvas-wrap">
