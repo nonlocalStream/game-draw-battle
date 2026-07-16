@@ -26,7 +26,7 @@ export function DebugPanel({ entries, settings, onSettings }: Props) {
   }
 
   return (
-    <div style={{
+    <div className="debug-panel-wrap" style={{
       position: 'fixed', bottom: 16, right: 16, zIndex: 9999,
       width: open ? 440 : 'auto',
       background: 'rgba(20,16,40,0.97)',

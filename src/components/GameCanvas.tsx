@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
-import type { GameState, PlayerState, Projectile, WeaponData } from '../types'
+import type { GameState, PlayerState, Projectile, WeaponData, GameEndStats } from '../types'
 import { useGameLoop } from '../hooks/useGameLoop'
 import { useKeyboard } from '../hooks/useKeyboard'
 import { useMultiplayer } from '../hooks/useMultiplayer'
@@ -19,7 +19,7 @@ interface Props {
   roomCode: string
   isSolo: boolean
   myWeapon: WeaponData | null
-  onGameOver: (winner: string) => void
+  onGameOver: (winner: string, stats: GameEndStats) => void
 }
 
 function cpuTick(cpu: PlayerState, target: PlayerState, dt: number): { player: PlayerState; projectile: Projectile | null } {
@@ -85,6 +85,11 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
     new Map(initialState.remotePlayers.map(p => [p.id, p.hp]))
   )
   const prevRemoteCooldownRef = useRef<Map<string, number>>(new Map())
+  // End-of-game stats
+  const statsDamageDealt = useRef(0)
+  const statsKills = useRef(0)
+  const statsDamageTaken = useRef(0)
+  const statsStartTime = useRef(Date.now())
   const [, forceUpdate] = useState(0)
 
   useEffect(() => { loadAssets() }, [])
@@ -168,13 +173,20 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
           const cpu = state.remotePlayers[0]
           const prevHp = cpu.hp
           const damaged = applyMeleeHit(localPlayer, cpu, result.meleeHit)
-          if (damaged.hp < prevHp) addImpactEffect(cpu.x, cpu.y)
+          if (damaged.hp < prevHp) {
+            addImpactEffect(cpu.x, cpu.y)
+            statsDamageDealt.current += prevHp - damaged.hp
+            if (damaged.dead && !cpu.dead) statsKills.current += 1
+          }
           state = { ...state, remotePlayers: [damaged, ...state.remotePlayers.slice(1)] }
         } else if (!isSolo) {
           for (const rp of state.remotePlayers) {
             if (rp.dead) continue
             const dmg = calcMeleeDamage(localPlayer, rp.element, result.meleeHit, rp)
-            if (dmg > 0) broadcastMeleeHit(dmg, rp.id)
+            if (dmg > 0) {
+              broadcastMeleeHit(dmg, rp.id)
+              statsDamageDealt.current += dmg
+            }
           }
         }
       }
@@ -219,11 +231,18 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
 
     state = tickEngine(state, dt, isSolo)
 
-    // Impact effects
-    if (state.localPlayer.hp < prevLHp) addImpactEffect(state.localPlayer.x, state.localPlayer.y)
+    // Impact effects + damage taken tracking
+    if (state.localPlayer.hp < prevLHp) {
+      addImpactEffect(state.localPlayer.x, state.localPlayer.y)
+      statsDamageTaken.current += prevLHp - state.localPlayer.hp
+    }
     for (const rp of state.remotePlayers) {
       const prevHp = prevRemoteHpRef.current.get(rp.id) ?? rp.hp
-      if (rp.hp < prevHp) addImpactEffect(rp.x, rp.y)
+      if (rp.hp < prevHp) {
+        addImpactEffect(rp.x, rp.y)
+        if (isSolo) statsDamageDealt.current += prevHp - rp.hp // solo projectile damage
+      }
+      if (rp.dead && prevHp > 0 && isSolo) statsKills.current += 1
       prevRemoteHpRef.current.set(rp.id, rp.hp)
     }
     prevLocalHp.current = state.localPlayer.hp
@@ -256,7 +275,20 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
       renderFrame(ctx, state.localPlayer, state.remotePlayers, state.projectiles, state.items, gameTimeRef.current, dt, getScreenShake())
     }
 
-    if (state.winner) onGameOver(state.winner)
+    if (state.winner) {
+      const allPlayers = [state.localPlayer, ...state.remotePlayers]
+      onGameOver(state.winner, {
+        players: allPlayers.map(p => ({
+          id: p.id, name: p.name, weaponName: p.weaponName,
+          survived: !p.dead, hp: Math.max(0, p.hp), maxHp: p.maxHp,
+          isLocal: p.id === state.localPlayer.id,
+        })),
+        myDamageDealt: Math.round(statsDamageDealt.current),
+        myKills: statsKills.current,
+        myDamageTaken: Math.round(statsDamageTaken.current),
+        gameDurationMs: Date.now() - statsStartTime.current,
+      })
+    }
     forceUpdate(n => n + 1)
   }, [keyboardRef, isSolo, broadcastState, broadcastProjectile, broadcastMeleeHit, broadcastItemCollected, onGameOver])
 
@@ -276,29 +308,55 @@ export function GameCanvas({ initialState, roomCode, isSolo, myWeapon, onGameOve
 
       <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} className="game-canvas" />
 
-      <div className="game-hud">
-        <div className="hud-player local">
-          <div className="hud-label">{local.name}</div>
-          <div className="hud-weapon">{local.weaponName}{local.attackLevel > 0 ? ' ★' : ''}</div>
-          <div className="hud-hp-bar">
-            <div className="hud-hp-fill" style={{ width: `${(local.hp / local.maxHp) * 100}%`, background: '#5cb85c' }} />
-          </div>
-          <span className="hud-hp-text">{Math.ceil(local.hp)}/{local.maxHp}</span>
-        </div>
-
-        <div className="hud-vs">{remotePlayers.length > 1 ? `VS ${remotePlayers.length}` : 'VS'}</div>
-
-        {remotePlayers.slice(0, 5).map(rp => (
-          <div key={rp.id} className="hud-player remote" style={{ opacity: rp.dead ? 0.4 : 1 }}>
-            <div className="hud-label">{rp.name}{rp.dead ? ' 💀' : ''}</div>
-            <div className="hud-weapon">{rp.weaponName}</div>
-            <div className="hud-hp-bar">
-              <div className="hud-hp-fill" style={{ width: `${(rp.hp / rp.maxHp) * 100}%`, background: '#d9534f' }} />
+      {isMobile && !isPortrait ? (
+        <>
+          {/* Compact HUD in side letterbox areas */}
+          <div className="mobile-hud-left">
+            <div className="mob-hud-card">
+              <div className="mob-hud-name">{local.name.slice(0, 7)}</div>
+              <div className="mob-hud-wp">{(local.weaponName || '').slice(0, 9)}{local.attackLevel > 0 ? '★' : ''}</div>
+              <div className="mob-hud-bar-wrap">
+                <div className="mob-hud-bar-fill" style={{ width: `${(local.hp / local.maxHp) * 100}%`, background: '#5cb85c' }} />
+              </div>
             </div>
-            <span className="hud-hp-text">{Math.ceil(Math.max(0, rp.hp))}/{rp.maxHp}</span>
           </div>
-        ))}
-      </div>
+          <div className="mobile-hud-right">
+            {remotePlayers.slice(0, 4).map(rp => (
+              <div key={rp.id} className="mob-hud-card" style={{ opacity: rp.dead ? 0.5 : 1 }}>
+                <div className="mob-hud-name mob-hud-name-rem">{rp.name.slice(0, 7)}{rp.dead ? '💀' : ''}</div>
+                <div className="mob-hud-wp">{(rp.weaponName || '').slice(0, 9)}</div>
+                <div className="mob-hud-bar-wrap">
+                  <div className="mob-hud-bar-fill" style={{ width: `${Math.max(0, rp.hp / rp.maxHp) * 100}%`, background: '#d9534f' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="game-hud">
+          <div className="hud-player local">
+            <div className="hud-label">{local.name}</div>
+            <div className="hud-weapon">{local.weaponName}{local.attackLevel > 0 ? ' ★' : ''}</div>
+            <div className="hud-hp-bar">
+              <div className="hud-hp-fill" style={{ width: `${(local.hp / local.maxHp) * 100}%`, background: '#5cb85c' }} />
+            </div>
+            <span className="hud-hp-text">{Math.ceil(local.hp)}/{local.maxHp}</span>
+          </div>
+
+          <div className="hud-vs">{remotePlayers.length > 1 ? `VS ${remotePlayers.length}` : 'VS'}</div>
+
+          {remotePlayers.slice(0, 5).map(rp => (
+            <div key={rp.id} className="hud-player remote" style={{ opacity: rp.dead ? 0.4 : 1 }}>
+              <div className="hud-label">{rp.name}{rp.dead ? ' 💀' : ''}</div>
+              <div className="hud-weapon">{rp.weaponName}</div>
+              <div className="hud-hp-bar">
+                <div className="hud-hp-fill" style={{ width: `${(rp.hp / rp.maxHp) * 100}%`, background: '#d9534f' }} />
+              </div>
+              <span className="hud-hp-text">{Math.ceil(Math.max(0, rp.hp))}/{rp.maxHp}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {isMobile && !isPortrait
         ? <MobileControls inputRef={keyboardRef} />

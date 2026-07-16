@@ -824,6 +824,73 @@ body {
   justify-content: center;
 }
 
+/* ===== Gameover rankings + awards ===== */
+.gameover-rankings {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gameover-rank-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(91,91,214,0.06);
+  border: 1px solid rgba(91,91,214,0.1);
+  font-size: 0.85rem;
+  transition: background 0.2s;
+}
+.gameover-rank-row.is-local {
+  background: rgba(155,127,232,0.14);
+  border-color: rgba(155,127,232,0.35);
+  font-weight: 700;
+}
+.gameover-rank-row.eliminated {
+  opacity: 0.55;
+}
+
+.rank-medal { font-size: 1.2rem; flex-shrink: 0; }
+.rank-name { flex: 1; font-weight: 700; color: #3A3A4C; text-align: left; }
+.rank-weapon { color: #8B7FB0; font-size: 0.78rem; }
+.rank-hp { font-size: 0.78rem; color: #5B5BD6; font-weight: 700; min-width: 72px; text-align: right; }
+
+.gameover-awards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  width: 100%;
+}
+
+.award-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: linear-gradient(135deg, rgba(255,180,200,0.18), rgba(180,140,255,0.18));
+  border: 1px solid rgba(155,127,232,0.3);
+  border-radius: 12px;
+  padding: 10px 14px;
+  min-width: 120px;
+}
+.award-icon { font-size: 1.4rem; }
+.award-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.35rem;
+  color: #9B7FE8;
+  text-align: center;
+  letter-spacing: 0.05em;
+}
+.award-body {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #3A3A4C;
+  text-align: center;
+}
+
 /* ===== Gallery star badge ===== */
 .gallery-thumb-wrap {
   position: relative;
@@ -1099,3 +1166,83 @@ body {
 }
 .btn-b { background: #1565C0; }
 .btn-a { background: #B71C1C; }
+
+/* Mobile: push A/B buttons higher so they're reachable without debug overlap */
+@media (pointer: coarse) {
+  .mobile-controls { padding: 0 28px 48px; }
+  .debug-panel-wrap { display: none !important; }
+}
+
+/* ===== Mobile side HUD (letterbox areas when landscape) ===== */
+.mobile-hud-left,
+.mobile-hud-right {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  pointer-events: none;
+  z-index: 20;
+  width: calc((100vw - min(100vw, 100vh * 4 / 3)) / 2 - 8px);
+  max-width: 160px;
+}
+.mobile-hud-left  { left: 4px; }
+.mobile-hud-right { right: 4px; }
+
+.mob-hud-card {
+  background: rgba(10,8,28,0.82);
+  border-radius: 5px;
+  padding: 4px 5px;
+  border: 1px solid rgba(155,127,232,0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.mob-hud-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.35rem;
+  color: #9B7FE8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mob-hud-name-rem { color: #F06292; }
+
+.mob-hud-wp {
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mob-hud-bar-wrap {
+  height: 4px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.mob-hud-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.2s;
+}
+
+/* ===== Battle ready waiting state ===== */
+.battle-ready-wait {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(91,91,214,0.15);
+  border: 1px solid rgba(155,127,232,0.4);
+  border-radius: 16px;
+  padding: 14px 24px;
+  color: #C4B5F4;
+  font-weight: 700;
+  font-size: 0.9rem;
+}

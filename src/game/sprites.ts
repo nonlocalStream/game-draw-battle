@@ -17,6 +17,7 @@ export interface SpriteSheet {
 export interface GameAssets {
   background: HTMLImageElement
   characters: SpriteSheet
+  tintedCharacters: Record<TintMode | 'flash', SpriteSheet>
   props: SpriteSheet
 }
 
@@ -60,12 +61,23 @@ export async function loadAssets(): Promise<GameAssets> {
     loadImg('/assets/props-upgrade-jars-01.png'),
   ])
 
+  const charCanvas = removeGreenScreen(charImg)
+  const charFrameW = Math.floor(charImg.naturalWidth / 8)
+  const charFrameH = Math.floor(charImg.naturalHeight / 3)
+  const makeCharSheet = (mode: TintMode | 'flash'): SpriteSheet => ({
+    canvas: applyTint(charCanvas, mode),
+    frameW: charFrameW,
+    frameH: charFrameH,
+  })
+
   _assets = {
     background: bgImg,
-    characters: {
-      canvas: removeGreenScreen(charImg),
-      frameW: Math.floor(charImg.naturalWidth / 8),
-      frameH: Math.floor(charImg.naturalHeight / 3),
+    characters: { canvas: charCanvas, frameW: charFrameW, frameH: charFrameH },
+    tintedCharacters: {
+      white:  makeCharSheet('white'),
+      black:  makeCharSheet('black'),
+      orange: makeCharSheet('orange'),
+      flash:  makeCharSheet('flash'),
     },
     props: {
       canvas: removeGreenScreen(propsImg),
@@ -81,21 +93,52 @@ export async function loadAssets(): Promise<GameAssets> {
 
 export function getAssets(): GameAssets | null { return _assets }
 
+export type TintMode = 'white' | 'black' | 'orange'
+
 export interface SlotConfig {
   spriteRow: number
-  filter: string   // CSS filter string applied to ctx before drawing
+  tintMode: TintMode
   nameColor: string
 }
 
 // 6 player slots: 3 sprite types × 2 color variants (white, black, orange)
 export const PLAYER_SLOT_CONFIGS: SlotConfig[] = [
-  { spriteRow: 0, filter: 'brightness(4) saturate(0)',                                    nameColor: '#E0E0E0' }, // white dog
-  { spriteRow: 0, filter: 'brightness(0.1) contrast(1.5)',                                nameColor: '#9E9E9E' }, // black dog
-  { spriteRow: 1, filter: 'brightness(4) saturate(0)',                                    nameColor: '#E0E0E0' }, // white cat
-  { spriteRow: 1, filter: 'sepia(1) saturate(5) hue-rotate(5deg) brightness(1.1)',        nameColor: '#FF9800' }, // orange cat
-  { spriteRow: 2, filter: 'brightness(0.1) contrast(1.5)',                                nameColor: '#9E9E9E' }, // black fox
-  { spriteRow: 2, filter: 'sepia(1) saturate(5) hue-rotate(5deg) brightness(1.1)',        nameColor: '#FF9800' }, // orange fox
+  { spriteRow: 0, tintMode: 'white',  nameColor: '#E8E8E8' }, // white dog
+  { spriteRow: 0, tintMode: 'black',  nameColor: '#9E9E9E' }, // black dog
+  { spriteRow: 1, tintMode: 'white',  nameColor: '#E8E8E8' }, // white cat
+  { spriteRow: 1, tintMode: 'orange', nameColor: '#FF9800' }, // orange cat
+  { spriteRow: 2, tintMode: 'black',  nameColor: '#9E9E9E' }, // black fox
+  { spriteRow: 2, tintMode: 'orange', nameColor: '#FF9800' }, // orange fox
 ]
+
+function applyTint(src: HTMLCanvasElement, mode: TintMode | 'flash'): HTMLCanvasElement {
+  const dst = document.createElement('canvas')
+  dst.width = src.width; dst.height = src.height
+  const ctx = dst.getContext('2d')!
+  ctx.drawImage(src, 0, 0)
+  const img = ctx.getImageData(0, 0, dst.width, dst.height)
+  const d = img.data
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 10) continue
+    const r = d[i], g = d[i + 1], b = d[i + 2]
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b
+    if (mode === 'white') {
+      const v = Math.min(255, lum * 3.5)
+      d[i] = d[i + 1] = d[i + 2] = v
+    } else if (mode === 'black') {
+      const v = lum * 0.15
+      d[i] = d[i + 1] = d[i + 2] = v
+    } else if (mode === 'orange') {
+      d[i]     = Math.min(255, lum * 2.4)
+      d[i + 1] = Math.min(255, lum * 0.85)
+      d[i + 2] = 0
+    } else { // flash – pure white on all non-transparent pixels
+      d[i] = d[i + 1] = d[i + 2] = 255
+    }
+  }
+  ctx.putImageData(img, 0, 0)
+  return dst
+}
 
 interface FrameResult { col: number; row: number; flipX: boolean }
 

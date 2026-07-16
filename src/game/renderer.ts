@@ -1,6 +1,6 @@
 import type { PlayerState, Projectile, MapItem, Facing } from '../types'
 import { ELEMENT_STATS } from './elements'
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from './terrain'
+import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_MAP, TILE_SIZE, MAP_ROWS, MAP_COLS } from './terrain'
 import { getAssets, getCharFrame, drawSpriteFrame, PLAYER_SLOT_CONFIGS } from './sprites'
 
 let _screenShake = 0
@@ -88,17 +88,60 @@ export function renderFrame(
   ctx.restore()
 }
 
-function drawBackground(ctx: CanvasRenderingContext2D): void {
-  const assets = getAssets()
-  if (!assets) { ctx.fillStyle = '#6aaa5c'; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); return }
+const TILE_FILL: Record<string, string> = {
+  grass:  '#4d7a3a',
+  flower: '#5c8c46',
+  sand:   '#c8a86e',
+  stone:  '#6b6b7a',
+  water:  '#2a5fa8',
+}
+const TILE_ACCENT: Record<string, string> = {
+  grass:  '#3e6530',
+  flower: '#7ec44a',
+  sand:   '#d8b87e',
+  stone:  '#8585a0',
+  water:  '#1a4a8a',
+}
 
-  const img = assets.background
-  const ia = img.naturalWidth / img.naturalHeight
-  const ca = CANVAS_WIDTH / CANVAS_HEIGHT
-  let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight
-  if (ia > ca) { sw = sh * ca; sx = (img.naturalWidth - sw) / 2 }
-  else          { sh = sw / ca; sy = (img.naturalHeight - sh) / 2 }
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+function drawBackground(ctx: CanvasRenderingContext2D): void {
+  const T = TILE_SIZE
+  for (let row = 0; row < MAP_ROWS; row++) {
+    for (let col = 0; col < MAP_COLS; col++) {
+      const tile = GAME_MAP[row][col]
+      ctx.fillStyle = TILE_FILL[tile] ?? '#4d7a3a'
+      ctx.fillRect(col * T, row * T, T, T)
+      // subtle checkerboard on walkable tiles
+      if ((row + col) % 2 === 1 && (tile === 'grass' || tile === 'flower' || tile === 'sand')) {
+        ctx.fillStyle = 'rgba(0,0,0,0.06)'
+        ctx.fillRect(col * T, row * T, T, T)
+      }
+      // accent border for non-grass tiles
+      if (tile !== 'grass') {
+        ctx.strokeStyle = TILE_ACCENT[tile] ?? '#3e6530'
+        ctx.lineWidth = 1
+        ctx.strokeRect(col * T + 0.5, row * T + 0.5, T - 1, T - 1)
+      }
+      // flower dots
+      if (tile === 'flower') {
+        ctx.fillStyle = 'rgba(255,210,255,0.7)'
+        ctx.beginPath()
+        ctx.arc(col * T + T * 0.35, row * T + T * 0.4, 2, 0, Math.PI * 2)
+        ctx.arc(col * T + T * 0.65, row * T + T * 0.6, 2, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      // water shimmer lines
+      if (tile === 'water') {
+        ctx.strokeStyle = 'rgba(150,200,255,0.3)'
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        ctx.moveTo(col * T + 4, row * T + T * 0.4)
+        ctx.lineTo(col * T + T - 4, row * T + T * 0.4)
+        ctx.moveTo(col * T + 8, row * T + T * 0.65)
+        ctx.lineTo(col * T + T - 8, row * T + T * 0.65)
+        ctx.stroke()
+      }
+    }
+  }
 }
 
 const CHAR_W = 52, CHAR_H = 62
@@ -120,22 +163,28 @@ function drawPlayer(ctx: CanvasRenderingContext2D, player: PlayerState, time: nu
 
   if (assets) {
     const { col, row, flipX } = getCharFrame(player, time, slot.spriteRow)
-    const activeFilter = hitFlash > 0 ? 'brightness(8) saturate(0)' : slot.filter
+    const tintMode = hitFlash > 0 ? 'flash' : slot.tintMode
+    const sheet = assets.tintedCharacters[tintMode]
 
-    // Upgrade glow
+    // Upgrade aura – pulsing rings behind the sprite
     if (attackLevel > 0) {
+      const pulse = Math.sin(time * 0.004) * 0.5 + 0.5
+      const ringR = 28 + pulse * 8
       ctx.save()
-      ctx.filter = activeFilter
-      ctx.shadowBlur = 20 + Math.sin(time * 0.006) * 6
+      ctx.shadowBlur = 18 + pulse * 14
       ctx.shadowColor = stats.glowColor
-      ctx.globalAlpha = 0.45
-      drawSpriteFrame(ctx, assets.characters, col, row, -CHAR_W / 2, -CHAR_H / 2, CHAR_W, CHAR_H, flipX)
+      ctx.strokeStyle = stats.glowColor
+      ctx.globalAlpha = 0.35 + pulse * 0.3
+      ctx.lineWidth = 2
+      ctx.beginPath(); ctx.arc(0, 0, ringR, 0, Math.PI * 2); ctx.stroke()
+      if (attackLevel > 1) {
+        ctx.globalAlpha = 0.2 + pulse * 0.2
+        ctx.beginPath(); ctx.arc(0, 0, ringR + 10, 0, Math.PI * 2); ctx.stroke()
+      }
       ctx.restore()
     }
 
-    ctx.filter = activeFilter
-    drawSpriteFrame(ctx, assets.characters, col, row, -CHAR_W / 2, -CHAR_H / 2, CHAR_W, CHAR_H, flipX)
-    ctx.filter = 'none'
+    drawSpriteFrame(ctx, sheet, col, row, -CHAR_W / 2, -CHAR_H / 2, CHAR_W, CHAR_H, flipX)
   } else {
     ctx.fillStyle = hitFlash > 0 ? '#FF8888' : stats.color
     ctx.beginPath(); ctx.roundRect(-14, -CHAR_H / 2, 28, CHAR_H, 6); ctx.fill()

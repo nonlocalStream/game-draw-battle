@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { GamePhase, WeaponData, GameState } from './types'
+import type { GamePhase, WeaponData, GameState, GameEndStats } from './types'
 import { RoomLobby } from './components/RoomLobby'
 import { DrawingCanvas } from './components/DrawingCanvas'
 import { WeaponDisplay } from './components/WeaponDisplay'
@@ -46,13 +46,17 @@ export default function App() {
   const [recognizing, setRecognizing] = useState(false)
   const [gameState, setGameState] = useState<GameState | null>(null)
   const [winner, setWinner] = useState<string | null>(null)
+  const [gameEndStats, setGameEndStats] = useState<GameEndStats | null>(null)
 
   // N-player room state
   const [roomMembers, setRoomMembers] = useState<Map<string, RoomMember>>(new Map())
   const [opponentWeapons, setOpponentWeapons] = useState<Map<string, WeaponData>>(new Map())
-  // Ref so the presence sync handler can read current roomMembers without stale closure
+  const [battleReadyIds, setBattleReadyIds] = useState<Set<string>>(new Set())
+  // Refs so async handlers can read current state without stale closures
   const roomMembersRef = useRef<Map<string, RoomMember>>(new Map())
   useEffect(() => { roomMembersRef.current = roomMembers }, [roomMembers])
+  const myWeaponRef = useRef<WeaponData | null>(null)
+  useEffect(() => { myWeaponRef.current = myWeapon }, [myWeapon])
 
   const myWeaponGalleryId = useRef<string | null>(null)
   const [channelRef] = useState<{ ch: GameChannel | null }>({ ch: null })
@@ -87,6 +91,16 @@ export default function App() {
             }
             setRoomMembers(members)
           })
+          .on('presence', { event: 'join' }, () => {
+            // Re-broadcast our weapon when a new player joins so late-joiners get our data
+            if (myWeaponRef.current) {
+              ch.send({
+                type: 'broadcast',
+                event: 'ready',
+                payload: { playerId, name, data: myWeaponRef.current }
+              })
+            }
+          })
           .on('broadcast', { event: 'ready' }, ({ payload }: { payload: { playerId: string; name: string; data: WeaponData } }) => {
             if (payload.playerId === playerId) return
             setOpponentWeapons(prev => new Map(prev).set(payload.playerId, payload.data))
@@ -96,6 +110,10 @@ export default function App() {
               next.set(payload.playerId, { name: payload.name ?? existing?.name ?? 'Player', status: 'ready' })
               return next
             })
+          })
+          .on('broadcast', { event: 'battle_start' }, ({ payload }: { payload: { playerId: string } }) => {
+            if (payload.playerId === playerId) return
+            setBattleReadyIds(prev => new Set([...prev, payload.playerId]))
           })
           .subscribe((status) => {
             if (status === 'SUBSCRIBED') {
@@ -113,6 +131,10 @@ export default function App() {
       payload: { playerId, name: playerName, data: weapon }
     })
   }, [channelRef, playerName])
+
+  const broadcastBattleStart = useCallback(() => {
+    channelRef.ch?.send({ type: 'broadcast', event: 'battle_start', payload: { playerId } })
+  }, [channelRef])
 
   const handleDrawingSubmit = useCallback(async (dataUrl: string) => {
     setRecognizing(true)
@@ -184,14 +206,21 @@ export default function App() {
     setGameState({ localPlayer, remotePlayers, projectiles: [], items: [], phase: 'battle', winner: null, tick: 0 })
     setPhase('battle')
 
+    // Release the drawing-phase channel so useMultiplayer gets clean bandwidth in battle
+    if (!isSolo) {
+      channelRef.ch?.unsubscribe()
+      channelRef.ch = null
+    }
+
     generateUpgrade(myWeapon).then(upgrade => {
       setMyWeapon(prev => prev ? { ...prev, upgrade } : prev)
       if (myWeaponGalleryId.current) applyUpgradeToGallery(myWeaponGalleryId.current, upgrade)
     })
-  }, [myWeapon, playerName, isSolo, opponentWeapons, roomMembers])
+  }, [myWeapon, playerName, isSolo, opponentWeapons, roomMembers, channelRef])
 
-  const handleGameOver = useCallback((w: string) => {
+  const handleGameOver = useCallback((w: string, stats: GameEndStats) => {
     setWinner(w)
+    setGameEndStats(stats)
     setPhase('gameover')
   }, [])
 
@@ -200,8 +229,10 @@ export default function App() {
     setMyWeapon(null)
     setOpponentWeapons(new Map())
     setRoomMembers(new Map())
+    setBattleReadyIds(new Set())
     setGameState(null)
     setWinner(null)
+    setGameEndStats(null)
     myWeaponGalleryId.current = null
     channelRef.ch?.unsubscribe()
     channelRef.ch = null
@@ -224,6 +255,16 @@ export default function App() {
       return () => clearTimeout(t)
     }
   }, [myWeapon, opponentWeapons, roomMembers, phase, isSolo])
+
+  // Multiplayer: start battle when all members have clicked Start Battle
+  useEffect(() => {
+    if (isSolo || phase !== 'recognition' || !myWeapon) return
+    if (!battleReadyIds.has(playerId)) return
+    const allIds = Array.from(roomMembers.keys())
+    if (allIds.length > 0 && allIds.every(id => battleReadyIds.has(id))) {
+      startBattle()
+    }
+  }, [battleReadyIds, roomMembers, phase, isSolo, myWeapon, startBattle])
 
   const opponents = Array.from(opponentWeapons.entries())
   const allOpponentsReady = isSolo
@@ -301,9 +342,23 @@ export default function App() {
               )}
 
               {myWeapon && allOpponentsReady && (
-                <button className="start-battle-btn" onClick={startBattle}>
-                  ⚔️ Start Battle!
-                </button>
+                isSolo ? (
+                  <button className="start-battle-btn" onClick={startBattle}>
+                    ⚔️ Start Battle!
+                  </button>
+                ) : battleReadyIds.has(playerId) ? (
+                  <div className="battle-ready-wait">
+                    <div className="spin-ring" />
+                    <p>✅ Ready! Waiting for {Array.from(roomMembers.keys()).filter(id => !battleReadyIds.has(id)).length} more...</p>
+                  </div>
+                ) : (
+                  <button className="start-battle-btn" onClick={() => {
+                    broadcastBattleStart()
+                    setBattleReadyIds(prev => new Set([...prev, playerId]))
+                  }}>
+                    ⚔️ Start Battle!
+                  </button>
+                )
               )}
             </div>
           )}
@@ -325,11 +380,59 @@ export default function App() {
           <div className="gameover-card">
             <div className="confetti-row">🎊 🏆 🎊</div>
             <h1 className="winner-text">{winner} Wins!</h1>
-            {myWeapon && (
-              <div className="gameover-weapons">
-                <WeaponDisplay weapon={myWeapon} label="Your Weapon" />
-              </div>
-            )}
+
+            {gameEndStats && (() => {
+              const sorted = [...gameEndStats.players].sort((a, b) =>
+                a.survived === b.survived ? b.hp / b.maxHp - a.hp / a.maxHp : (a.survived ? -1 : 1)
+              )
+              const durationSec = Math.round(gameEndStats.gameDurationMs / 1000)
+              const myIsWinner = gameEndStats.players.find(p => p.isLocal)?.survived
+
+              const awards: { icon: string; title: string; body: string }[] = []
+              // MVP weapon – winner's weapon
+              const winnerPlayer = sorted[0]
+              if (winnerPlayer) {
+                awards.push({ icon: '⚔️', title: 'MVP Weapon', body: `${winnerPlayer.name} · ${winnerPlayer.weaponName}` })
+              }
+              if (gameEndStats.myDamageDealt > 0) {
+                awards.push({ icon: '💥', title: 'Damage Dealt', body: `${gameEndStats.myDamageDealt} total` })
+              }
+              if (gameEndStats.myKills > 0) {
+                awards.push({ icon: '☠️', title: myIsWinner ? 'Clean Sweep' : 'Kills', body: `${gameEndStats.myKills} opponent${gameEndStats.myKills > 1 ? 's' : ''} eliminated` })
+              }
+              if (gameEndStats.myDamageTaken > 0 && !myIsWinner) {
+                awards.push({ icon: '🛡️', title: 'Damage Taken', body: `${gameEndStats.myDamageTaken} absorbed` })
+              }
+              awards.push({ icon: '⏱️', title: 'Battle Duration', body: `${durationSec}s` })
+
+              return (
+                <>
+                  {/* Player rankings */}
+                  <div className="gameover-rankings">
+                    {sorted.map((p, i) => (
+                      <div key={p.id} className={`gameover-rank-row ${p.isLocal ? 'is-local' : ''} ${p.survived ? 'survived' : 'eliminated'}`}>
+                        <span className="rank-medal">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`}</span>
+                        <span className="rank-name">{p.name}{p.survived ? '' : ' 💀'}</span>
+                        <span className="rank-weapon">{p.weaponName}</span>
+                        <span className="rank-hp">{p.survived ? `${Math.ceil(p.hp)}/${p.maxHp} HP` : '0 HP'}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Awards row */}
+                  <div className="gameover-awards">
+                    {awards.map(a => (
+                      <div key={a.title} className="award-chip">
+                        <span className="award-icon">{a.icon}</span>
+                        <span className="award-title">{a.title}</span>
+                        <span className="award-body">{a.body}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )
+            })()}
+
             <button className="lobby-btn primary" onClick={resetGame}>🏠 Back to Lobby</button>
           </div>
         </div>

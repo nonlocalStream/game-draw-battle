@@ -98,6 +98,24 @@ export interface GameState {
   tick: number
 }
 
+export interface PlayerEndStat {
+  id: string
+  name: string
+  weaponName: string
+  survived: boolean
+  hp: number
+  maxHp: number
+  isLocal: boolean
+}
+
+export interface GameEndStats {
+  players: PlayerEndStat[]
+  myDamageDealt: number
+  myKills: number
+  myDamageTaken: number
+  gameDurationMs: number
+}
+
 export interface RemotePayload {
   type: 'player_state' | 'projectile_fired' | 'item_collected' | 'game_over' | 'ready'
   playerId: string
