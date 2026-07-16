@@ -88,56 +88,51 @@ export function renderFrame(
   ctx.restore()
 }
 
-const TILE_FILL: Record<string, string> = {
-  grass:  '#4d7a3a',
-  flower: '#5c8c46',
-  sand:   '#c8a86e',
-  stone:  '#6b6b7a',
-  water:  '#2a5fa8',
-}
-const TILE_ACCENT: Record<string, string> = {
-  grass:  '#3e6530',
-  flower: '#7ec44a',
-  sand:   '#d8b87e',
-  stone:  '#8585a0',
-  water:  '#1a4a8a',
-}
-
 function drawBackground(ctx: CanvasRenderingContext2D): void {
+  const assets = getAssets()
+
+  // Draw the background image as the visual base
+  if (assets) {
+    const img = assets.background
+    const ia = img.naturalWidth / img.naturalHeight
+    const ca = CANVAS_WIDTH / CANVAS_HEIGHT
+    let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight
+    if (ia > ca) { sw = sh * ca; sx = (img.naturalWidth - sw) / 2 }
+    else          { sh = sw / ca; sy = (img.naturalHeight - sh) / 2 }
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+  } else {
+    ctx.fillStyle = '#4d7a3a'
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+  }
+
+  // Overlay non-walkable tiles so collision matches the visual exactly
   const T = TILE_SIZE
   for (let row = 0; row < MAP_ROWS; row++) {
     for (let col = 0; col < MAP_COLS; col++) {
       const tile = GAME_MAP[row][col]
-      ctx.fillStyle = TILE_FILL[tile] ?? '#4d7a3a'
-      ctx.fillRect(col * T, row * T, T, T)
-      // subtle checkerboard on walkable tiles
-      if ((row + col) % 2 === 1 && (tile === 'grass' || tile === 'flower' || tile === 'sand')) {
-        ctx.fillStyle = 'rgba(0,0,0,0.06)'
-        ctx.fillRect(col * T, row * T, T, T)
-      }
-      // accent border for non-grass tiles
-      if (tile !== 'grass') {
-        ctx.strokeStyle = TILE_ACCENT[tile] ?? '#3e6530'
+      const x = col * T, y = row * T
+
+      if (tile === 'stone') {
+        ctx.fillStyle = 'rgba(60,55,75,0.72)'
+        ctx.fillRect(x, y, T, T)
+        // top-left highlight
+        ctx.strokeStyle = 'rgba(200,190,220,0.25)'
         ctx.lineWidth = 1
-        ctx.strokeRect(col * T + 0.5, row * T + 0.5, T - 1, T - 1)
-      }
-      // flower dots
-      if (tile === 'flower') {
-        ctx.fillStyle = 'rgba(255,210,255,0.7)'
+        ctx.strokeRect(x + 1, y + 1, T - 2, T - 2)
+        // bottom-right shadow
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)'
         ctx.beginPath()
-        ctx.arc(col * T + T * 0.35, row * T + T * 0.4, 2, 0, Math.PI * 2)
-        ctx.arc(col * T + T * 0.65, row * T + T * 0.6, 2, 0, Math.PI * 2)
-        ctx.fill()
-      }
-      // water shimmer lines
-      if (tile === 'water') {
-        ctx.strokeStyle = 'rgba(150,200,255,0.3)'
-        ctx.lineWidth = 1
+        ctx.moveTo(x + T - 1, y + 1); ctx.lineTo(x + T - 1, y + T - 1); ctx.lineTo(x + 1, y + T - 1)
+        ctx.stroke()
+      } else if (tile === 'water') {
+        ctx.fillStyle = 'rgba(20,80,160,0.55)'
+        ctx.fillRect(x, y, T, T)
+        // shimmer lines
+        ctx.strokeStyle = 'rgba(140,200,255,0.4)'
+        ctx.lineWidth = 1.5
         ctx.beginPath()
-        ctx.moveTo(col * T + 4, row * T + T * 0.4)
-        ctx.lineTo(col * T + T - 4, row * T + T * 0.4)
-        ctx.moveTo(col * T + 8, row * T + T * 0.65)
-        ctx.lineTo(col * T + T - 8, row * T + T * 0.65)
+        ctx.moveTo(x + 4, y + T * 0.38); ctx.lineTo(x + T - 4, y + T * 0.38)
+        ctx.moveTo(x + 8, y + T * 0.63); ctx.lineTo(x + T - 8, y + T * 0.63)
         ctx.stroke()
       }
     }
